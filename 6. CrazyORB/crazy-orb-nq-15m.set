@@ -1,0 +1,15 @@
+; saved by RoboQuant
+; strategy input parameters
+;
+range_start_hhmm=915||0||1||2359||N
+range_end_hhmm=930||0||1||2359||N
+atr_period=14||2||1||200||N
+atr_mult=1||0.1||1||10||N
+rr=0.35||0.25||1||10||N
+risk_usd=2001||25||1||50000||N
+min_size=1||0||1||200||N
+max_trades=2||1||1||20||N
+trade_start_hhmm=930||0||1||2359||N
+trade_end_hhmm=1545||0||1||2359||N
+flatten_hhmm=1555||0||1||2359||N
+draw_visuals=true||false||0||true||N

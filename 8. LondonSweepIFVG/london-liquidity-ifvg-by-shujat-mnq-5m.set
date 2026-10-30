@@ -1,0 +1,27 @@
+; saved by RoboQuant
+; strategy input parameters
+;
+london_start_hhmm=330||0||1||2359||N
+london_end_hhmm=925||0||1||2359||N
+ls_limit_start_hhmm=925||0||1||2359||N
+ls_limit_end_hhmm=1315||0||1||2359||N
+line_duration_bars=6||1||1||50||N
+max_ifvg_age_hours=10||1||1||168||N
+swing_lookback=5||1||1||50||N
+sl_type=1
+tp_type=2
+risk_reward=0.2||0.1||1||10||N
+atr_length=14||1||1||100||N
+sl_atr_mult=2||0.1||1||10||N
+tp_atr_mult=0.2||0.1||1||10||N
+sizing_mode=1
+fixed_lots=1||1||1||1000||N
+risk_per_trade_usd=1000||1||1||100000||N
+risk_per_trade_pct=1||0.01||1||100||N
+use_day_filter=false||false||0||true||N
+trade_mon=true||false||0||true||N
+trade_tue=true||false||0||true||N
+trade_wed=true||false||0||true||N
+trade_thu=true||false||0||true||N
+trade_fri=true||false||0||true||N
+visual_days_limit=5||0||1||60||N
