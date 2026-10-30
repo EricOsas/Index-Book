@@ -1196,6 +1196,28 @@ private static class ProductExposure
 
 	private double SlippagePrice => (double)SlippagePoints * 0.01;
 
+	// Cost-covered stop floors reserve at least one native tick of slippage per side (live: exit side only, entry slippage is in the fill; historical: both sides).
+	private double CoverSlippagePerSide => Math.Max(SlippagePrice, ExecutionInstrument.MasterInstrument.TickSize);
+
+	// Tradeify published round-turn all-in fees (NQ $5.76, MNQ $1.82). Lower bound only: never reduces a larger input or learned live fee. NNQ has no published Tradeify fee, so it uses the input/learned value only.
+	private static double PublishedRoundTurn(string root)
+	{
+		switch ((root ?? "").Trim().ToUpperInvariant())
+		{
+		case "NQ":
+			return 5.76;
+		case "MNQ":
+			return 1.82;
+		default:
+			return 0.0;
+		}
+	}
+
+	private double CoverCommission(double commission)
+	{
+		return Math.Max(commission, PublishedRoundTurn(ExecutionInstrument.MasterInstrument.Name));
+	}
+
 	private double CostPerContract => EffectiveCommission + 2.0 * SlippagePrice * ExecutionInstrument.MasterInstrument.PointValue;
 
 	private Instrument ExecutionInstrument => BarsArray[0].Instrument;
@@ -3779,7 +3801,7 @@ private static class ProductExposure
 			num4 = Math.Max(num4, 2.0 * feeTrade.Slices.Values.Where((FeeSlice x) => x.Entry).Sum((FeeSlice x) => FeeTrade.Charge(x.Execution)) / (double)feeTrade.EntryQuantity);
 		}
 		recoveredCommissionFloor = Math.Max(recoveredCommissionFloor, num4);
-		double val = CoveredStop(num, num2, num4, ExecutionInstrument.MasterInstrument.PointValue, SlippagePrice * (double)((State != State.Historical) ? 1 : 2), ExecutionInstrument.MasterInstrument.TickSize);
+		double val = CoveredStop(num, num2, CoverCommission(num4), ExecutionInstrument.MasterInstrument.PointValue, CoverSlippagePerSide * (double)((State != State.Historical) ? 1 : 2), ExecutionInstrument.MasterInstrument.TickSize);
 		double val2 = Round(num2 + (double)num * num3 * initialRisk);
 		double num5 = ((num > 0) ? Math.Max(val, val2) : Math.Min(val, val2));
 		double num6;
@@ -3820,7 +3842,7 @@ private static class ProductExposure
 			commission = Math.Max(commission, 2.0 * feeTrade.Slices.Values.Where((FeeSlice x) => x.Entry).Sum((FeeSlice x) => FeeTrade.Charge(x.Execution)) / (double)feeTrade.EntryQuantity);
 		}
 		recoveredCommissionFloor = Math.Max(recoveredCommissionFloor, commission);
-		double stop = CoveredStop(side, entry, commission, ExecutionInstrument.MasterInstrument.PointValue, SlippagePrice * (double)((State != State.Historical) ? 1 : 2), ExecutionInstrument.MasterInstrument.TickSize);
+		double stop = CoveredStop(side, entry, CoverCommission(commission), ExecutionInstrument.MasterInstrument.PointValue, CoverSlippagePerSide * (double)((State != State.Historical) ? 1 : 2), ExecutionInstrument.MasterInstrument.TickSize);
 		double quote = (State == State.Realtime) ? ((side > 0) ? GetCurrentBid(executionSeries) : GetCurrentAsk(executionSeries)) : bar.Close;
 		if ((double)side * (quote - stop) <= 0.0)
 		{
@@ -4063,19 +4085,21 @@ private static class ProductExposure
 		double value = num3 - (double)entered * tradeModeledCost;
 		Print(Name + " trade closed: gross=" + F(num3) + " modeled net=" + F(value) + " actual commission=" + F(actualFees));
 		Record("CLOSE", time, "gross=" + F(num3) + " modeledNet=" + F(value));
+		string completedCloseReason = closeReason;
 		entered = (exited = 0);
 		brackets.Clear();
 		closing = false;
 		closeReason = null;
-		ArmSameSideRetry(time, value < 0.0);
+		ArmSameSideRetry(time, value < 0.0, completedCloseReason);
 		status = retryArmed ? "Same-side retry armed" : "Daily trade consumed";
 		ReleaseExposure();
 		SaveRecovery();
 	}
 
-	private void ArmSameSideRetry(DateTime time, bool losingExit)
+	private void ArmSameSideRetry(DateTime time, bool losingExit, string exitCloseReason)
 	{
-		retryArmed = entryCount == 1 && entryDirection != 0 && losingExit && !targetFilled && closeReason == null;
+		// Retry only after a losing broker protective-stop exit: any strategy-initiated close (time, partial, recovery, trail-cross, invalid fill) leaves exitCloseReason set.
+		retryArmed = entryCount == 1 && entryDirection != 0 && losingExit && !targetFilled && string.IsNullOrEmpty(exitCloseReason);
 		retryEligibleAt = retryArmed ? time : DateTime.MinValue;
 	}
 
@@ -4588,4 +4612,3 @@ namespace NinjaTrader.NinjaScript.Indicators
         }
     }
 }
-
