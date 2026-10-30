@@ -174,3 +174,23 @@ Verification: production EA compiled with zero errors and warnings. The original
 Owned broker fills are reconstructed from available loaded chart history and grouped by position ID. Grey risk and blue realized profit boxes use actual entry/exit times and volume-weighted prices. Initial stop levels come from the opening order; historical Overnight trades without a recorded initial stop do not invent a risk box. Open boxes extend with the chart; completed history is cached and refreshed when an owned deal arrives. White entry/exit arrows follow the RBE style. Risk/Lots labels are capitalized; the panel remains 210 by 198 pixels.
 
 Source-contract checks pass. No entry, sizing, cost or signal-clock rules were changed by the execution-visual update.
+
+## Completion audit - 2026-10-30
+
+Audited against the shipped code, not the prior text. Changes (source edited; **not recompiled** - rebuild in MetaEditor and replace the stale EX5):
+
+- **Retry-signal parity with NT8 and the research rule ("later completed M15 close").** Previously the retry candle had to *open* after the losing exit; it now must *close* strictly after it (`b[0].time + PeriodSeconds(sourceTF) > retryEligibleAfter`). Retries can therefore occur one M15 candle earlier than before. Native tester receipts predating this change are not evidence for the new behaviour.
+- `.mq5` header corrected: bias/open are 08:30 Central (09:30 New York); the confirming close is after 09:00 Central; max two attempts (one same-side retry after a losing stop).
+- Unchanged and verified present: retry only after a losing `DEAL_REASON_SL` exit; retry 0.15 ATR stop / 3R (0.45 ATR) target; one cost-covered BE after +0.5R completed-M1 close, no later ratchet; retry state journalled (`entries`, `firstside`, `retryarmed`, `retryafter`).
+
+Open items (not assumed): cash-risk sizing gives the retry about twice the first trade's lots (half the stop distance, same cash budget) while the research used one fixed contract for both; MT5 cost floor reserves the declared commission plus `SlippagePoints` only, in broker points on a CFD, and does not reproduce the futures one-tick-per-side rule.
+
+## Completion audit - 2026-10-30
+
+Audited against the shipped code, not the prior text. Changes (source edited; **not recompiled** - rebuild in MetaEditor and replace the stale EX5):
+
+- **Retry-signal parity with NT8 and the research rule ("later completed M15 close").** Previously the retry candle had to *open* after the losing exit; it now must *close* strictly after it (`b[0].time + PeriodSeconds(sourceTF) > retryEligibleAfter`). Retries can therefore occur one M15 candle earlier than before. Native tester receipts predating this change are not evidence for the new behaviour.
+- `.mq5` header corrected: bias/open are 08:30 Central (09:30 New York); the confirming close is after 09:00 Central; max two attempts (one same-side retry after a losing stop).
+- Unchanged and verified present: retry only after a losing `DEAL_REASON_SL` exit; retry 0.15 ATR stop / 3R (0.45 ATR) target; one cost-covered BE after +0.5R completed-M1 close, no later ratchet; retry state journalled (`entries`, `firstside`, `retryarmed`, `retryafter`).
+
+Open items (not assumed): cash-risk sizing gives the retry about twice the first trade's lots (half the stop distance, same cash budget) while the research used one fixed contract for both; MT5 cost floor reserves the declared commission plus `SlippagePoints` only, in broker points on a CFD, and does not reproduce the futures one-tick-per-side rule.
