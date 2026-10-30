@@ -124,3 +124,23 @@ Verification: the earlier build passed full Custom compilation and broker/source
 Real historical and live fills use native NinjaTrader execution markers and trade lines, plus RBE/ORB execution boxes: grey stop-risk area, blue realized profit area and a bounded entry line. Completed boxes retain actual entry/exit times and weighted fill prices; partial exits remain open until fully resolved. Completed drawings are cached and retried when a chart attaches. No custom execution arrows are fabricated. All drawing helpers are embedded in this strategy file; copy the single .cs file directly, without a VPS package or RBE dependency.
 
 Verification: both complete strategy sources passed an isolated platform-API compile with zero errors/warnings using a temporary standard-factory adapter. The installed workspace cannot currently complete a full project compile because its project references include stale paths and the platform-generated Strategies/@Strategy.cs is missing. This isolated compile does not certify native chart rendering. Reload/chart visual verification remains required.
+
+## Completion audit - 2026-10-30
+
+Audited against the shipped code. Source edited; **not compiled in NinjaTrader** (no NT8 assemblies available): import and compile natively, then run the parity checks below.
+
+- **Bug fixed - retry eligibility.** `Complete()` cleared `closeReason` before `ArmSameSideRetry` tested `closeReason == null`, so the "no retry after time/partial/recovery/trail-cross/invalid-fill closes" rule never applied. The reason is now captured before clearing and the retry arms only after a losing exit with no strategy-initiated close and no target fill.
+- **Cost-covered floor now reserves what the research floors assume.** Both the first-trade trail floor and the retry BE use (a) slippage per side = max(configured, one native tick) - historical fills reserve both sides, live reserves the exit side because the fill embeds entry slippage - and (b) round-turn fee = max(configured/learned fee, Tradeify published all-in fee: NQ $5.76, MNQ $1.82). NNQ has no published Tradeify fee, so it uses the configured/learned value only; set it explicitly. Sizing (`CostPerContract`) is unchanged.
+- Resulting floors above entry (historical / live), default $4 fee input: NQ 1.00 / 0.75 points (was 0.50 / 0.25); MNQ 2.50 / 2.25 points. With the fee input set to 1.82, MNQ is 1.50 / 1.25, matching the research floor. The $4 default is therefore conservative for MNQ.
+- Unchanged and verified present: max two attempts; same-side retry on a strictly later *closing* M15 candle; retry 0.15 ATR stop / 3R target; one BE move after +0.5R; V2 journal fields.
+- Open items (not assumed): cash-risk sizing gives the retry roughly double the first trade's contracts; the research used one fixed contract for both. NNQ fee and point value remain unverified here.
+
+## Completion audit - 2026-10-30
+
+Audited against the shipped code. Source edited; **not compiled in NinjaTrader** (no NT8 assemblies available): import and compile natively, then run the parity checks below.
+
+- **Bug fixed - retry eligibility.** `Complete()` cleared `closeReason` before `ArmSameSideRetry` tested `closeReason == null`, so the "no retry after time/partial/recovery/trail-cross/invalid-fill closes" rule never applied. The reason is now captured before clearing and the retry arms only after a losing exit with no strategy-initiated close and no target fill.
+- **Cost-covered floor now reserves what the research floors assume.** Both the first-trade trail floor and the retry BE use (a) slippage per side = max(configured, one native tick) - historical fills reserve both sides, live reserves the exit side because the fill embeds entry slippage - and (b) round-turn fee = max(configured/learned fee, Tradeify published all-in fee: NQ $5.76, MNQ $1.82). NNQ has no published Tradeify fee, so it uses the configured/learned value only; set it explicitly. Sizing (`CostPerContract`) is unchanged.
+- Resulting floors above entry (historical / live), default $4 fee input: NQ 1.00 / 0.75 points (was 0.50 / 0.25); MNQ 2.50 / 2.25 points. With the fee input set to 1.82, MNQ is 1.50 / 1.25, matching the research floor. The $4 default is therefore conservative for MNQ.
+- Unchanged and verified present: max two attempts; same-side retry on a strictly later *closing* M15 candle; retry 0.15 ATR stop / 3R target; one BE move after +0.5R; V2 journal fields.
+- Open items (not assumed): cash-risk sizing gives the retry roughly double the first trade's contracts; the research used one fixed contract for both. NNQ fee and point value remain unverified here.
