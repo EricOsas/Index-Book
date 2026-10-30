@@ -918,7 +918,7 @@ void OnTick()
    if(CopyBuffer(adxHandle,0,1,2,adx)!=2) return;
    int side=0;double stop=0,target=0,distance=0;
    side=OBRSignalSide(2,bias,b[0].close,orHigh,orLow,adx[0]);
-   if(entries==1 && (!retryArmed || side!=firstSide || b[0].time<=retryEligibleAfter)) return;
+   if(entries==1 && (!retryArmed || side!=firstSide || b[0].time+PeriodSeconds(sourceTF)<=retryEligibleAfter)) return; // confirming CLOSE must be strictly after the losing exit (parity with NT8)
    double attemptDistance=NoiseFraction*averageATR*(entries==1 ? OBRRetryStopFraction : 1.0);
    distance=attemptDistance;
    if(side!=0)
