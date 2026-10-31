@@ -4,7 +4,7 @@
 #property version   "1.00"
 #property description "Sigma N3/1.7 — M30 completed-bar band breakout, RTH 09:30-16:00 ET."
 #property description "Upper/lower band from N prior sessions per slot x BandMult multiplier."
-#property description "Fixed lot 1 default. Same-side retry after losing stop. M1 R-step trail."
+#property description "Fixed lot 1 default. Flip on opposite band breach or 15:44 ET session cutoff."
 #property description "Developed by Osamwonyi Eric (@You_FoundEric). Unauthorized redistribution prohibited."
 #property strict
 
