@@ -7,7 +7,7 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE = (ROOT / "references" / "OvernightBiasRangeBreakoutNT8_UserSample.cs").read_text(encoding="utf-8")
+SAMPLE = (ROOT / "Sample EAs" / "OvernightBiasRangeBreakout_NT8" / "OvernightBiasRangeBreakoutNT8.cs").read_text(encoding="utf-8")
 
 
 def brace_end(src: str, open_pos: int) -> int:
@@ -112,7 +112,7 @@ def require(src: str, needle: str, label: str) -> None:
 
 
 def check_strategy(filename: str, strategy_class: str, model: str) -> dict:
-    path = ROOT / "nt8" / filename
+    path = ROOT / filename
     src = path.read_text(encoding="utf-8")
     result = {
         "sha256": hashlib.sha256(src.encode()).hexdigest(),
@@ -173,7 +173,12 @@ def check_strategy(filename: str, strategy_class: str, model: str) -> dict:
             ("SlPct = 0.0;", "no-stop baseline"),
             ("FixedLot = 1;", "fixed-lot default"),
             ("pendingSigmaFlipSide", "durable reversal state"),
-            ("IndependentNT8.SigmaN3.v2", "v2 flip journal"),
+            ("IndependentNT8.SigmaN3.v3", "v3 retry recovery journal"),
+            ("IndependentNT8.v2", "backwards-compatible v2 recovery reader"),
+            ("entryCount == 1 && retryArmed && side == entryDirection", "same-side retry gate"),
+            ("firstStopDistance * RetryStopFraction", "half original stop distance"),
+            ("stopExitFilled", "protective-stop exit classification"),
+            ("!targetFilled", "target fill prevents retry"),
             ("SubmitSigmaEntry(flipSide, flipClose, flipEnd)", "reverse entry after close"),
             ("endEt.TimeOfDay.TotalMinutes < 944", "15:44 ET cutoff"),
             ("SkipSetupsAboveRiskBudget && SlPct > 0", "variable-only risk cap"),
@@ -186,7 +191,7 @@ def check_strategy(filename: str, strategy_class: str, model: str) -> dict:
             ("InitialSizingEquity = 10000.0;", "Analyzer default equity"),
             ("bucketStartUtc.TimeOfDay == new TimeSpan(14, 30, 0)", "14:30 UTC target"),
             ("candle.Close > flashTargetHigh", "strict M15 close break"),
-            ("flashPeakClose = Math.Max(flashPeakClose, bar.Close)", "completed M1 close trail"),
+            ("flashPeakHigh = Math.Max(flashPeakHigh, bar.High)", "completed M1 high trail"),
             ("internal static int Cutoff(DateTime d)", "daily cutoff"),
             ("return 1005", "16:45 ET cutoff"),
             ("SkipSetupsAboveRiskBudget && qty * perContract", "optional variable risk cap"),
@@ -198,18 +203,50 @@ def check_strategy(filename: str, strategy_class: str, model: str) -> dict:
     return result
 
 
+
+def check_mql_retry() -> dict:
+    core_path = ROOT / "7. SigmaBreakout_NT" / "StrategyEngine.mqh"
+    runtime_path = ROOT / "7. SigmaBreakout_NT" / "ExecutionRuntime.mqh"
+    core = core_path.read_text(encoding="utf-8")
+    runtime = runtime_path.read_text(encoding="utf-8")
+    require(core, "retryEntry=entries==1 && retryArmed", "MQL same-side retry gate")
+    require(core, "firstStopDistance*SigmaRetryStopFraction", "MQL half original stop distance")
+    require(core, "SlPct>0.0 && firstStopDistance>0.0", "MQL retry requires a real original stop")
+    require(core, "signalEnd>retryEligibleAfter", "MQL retry must use a later completed signal")
+    require(core, "!targetFilled", "MQL target fill prevents retry")
+    require(runtime, 'SigmaStatePut(k+"firststopdist",firstStopDistance);', "MQL retry distance persistence")
+    require(runtime, 'SigmaStatePut(k+"targetfilled",targetFilled ? 1 : 0);', "MQL target state persistence")
+    require(runtime, 'firstStopDistance=GlobalVariableCheck(k+"firststopdist")', "MQL retry distance restoration")
+    return {
+        "model_contract": "PASS",
+        "native_compiled": False,
+        "native_compiler_note": "MetaEditor compile and Strategy Tester run are manual steps",
+        "sources": {
+            "strategy_engine": {
+                "sha256": hashlib.sha256(core.encode()).hexdigest(),
+                "lines": len(core.splitlines()),
+            },
+            "execution_runtime": {
+                "sha256": hashlib.sha256(runtime.encode()).hexdigest(),
+                "lines": len(runtime.splitlines()),
+            },
+        },
+    }
+
+
 def main() -> None:
     results = {
         "package": "Index Book Sigma N3/1.7 + Flash Trigger ORB port handoff",
         "sample_file_sha256": hashlib.sha256(SAMPLE.encode()).hexdigest(),
         "strategies": {
-            "sigma": check_strategy("SigmaBreakoutNT8.cs", "SigmaBreakoutNT8", "sigma"),
-            "flash": check_strategy("FlashTriggerOrbNT8.cs", "FlashTriggerOrbNT8", "flash"),
+            "sigma": check_strategy("7. SigmaBreakout_NT/SigmaBreakoutNT8.cs", "SigmaBreakoutNT8", "sigma"),
+            "flash": check_strategy("8. FlashTriggerORB_NT/FlashTriggerOrbNT8.cs", "FlashTriggerOrbNT8", "flash"),
         },
+        "mql5_retry_contract": check_mql_retry(),
         "limitations": [
-            "Static source validation does not establish NT8 compilation or live readiness.",
-            "Strategy Analyzer, chart visuals, live-sim recovery lifecycle and broker integration remain untested.",
-            "MQL5 EA is not built; only the port guide is included."
+            "Static source validation does not establish NT8 or MetaTrader compilation.",
+            "Strategy Analyzer, chart visuals, live-sim recovery lifecycle and broker integration remain manual test requirements.",
+            "Committed compiler logs and binaries are evidence artifacts only; they do not prove the exact current source was compiled."
         ]
     }
     out = ROOT / "validation" / "static_results.json"

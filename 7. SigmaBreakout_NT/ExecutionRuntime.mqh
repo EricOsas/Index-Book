@@ -304,6 +304,8 @@ void SigmaStateSave(int reserved=-1)
    SigmaStatePut(k+"day",(double)day);
    SigmaStatePut(k+"entries",reserved>=0 ? reserved : entries);
    SigmaStatePut(k+"firstside",firstSide);
+   SigmaStatePut(k+"firststopdist",firstStopDistance);
+   SigmaStatePut(k+"targetfilled",targetFilled ? 1 : 0);
    SigmaStatePut(k+"retryarmed",retryArmed ? 1 : 0);
    SigmaStatePut(k+"retryafter",(double)retryEligibleAfter);
    SigmaStatePut(k+"signal",(double)lastSignal);
@@ -374,6 +376,8 @@ void SigmaStateRestore(datetime now)
    {
       entries=(int)GlobalVariableGet(k+"entries");
       firstSide=GlobalVariableCheck(k+"firstside") ? (int)GlobalVariableGet(k+"firstside") : 0;
+      firstStopDistance=GlobalVariableCheck(k+"firststopdist") ? GlobalVariableGet(k+"firststopdist") : 0;
+      targetFilled=GlobalVariableCheck(k+"targetfilled") && GlobalVariableGet(k+"targetfilled")==1;
       retryArmed=GlobalVariableCheck(k+"retryarmed") && GlobalVariableGet(k+"retryarmed")==1;
       retryEligibleAfter=GlobalVariableCheck(k+"retryafter") ? (datetime)GlobalVariableGet(k+"retryafter") : 0;
       lastSignal=(datetime)GlobalVariableGet(k+"signal");
@@ -400,7 +404,7 @@ void SigmaStateRestore(datetime now)
    {runtimeBlocked=true;runtimeRecoveryHold=true;Note("RECOVERY_BLOCK","Unresolved pre-send entry reservation; no replacement order");}
    if(OwnPosition())
    {
-	  if(firstSide==0) firstSide=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY ? 1 : -1;
+      if(firstSide==0) firstSide=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY ? 1 : -1;
       ulong position=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
       if(same && !GlobalVariableCheck(k+"poshi") && !GlobalVariableCheck(k+"poslo") && SigmaLegacyPositionRiskVerified())
       {
@@ -426,6 +430,10 @@ void SigmaStateRestore(datetime now)
          || ownedEntryTime!=(datetime)PositionGetInteger(POSITION_TIME))
       {runtimeBlocked=true;runtimeRecoveryHold=true;initialRisk=0;Note("RECOVERY_BLOCK","Original-risk/trail journal cannot identify owned position; broker protection retained");}
    }
+   if(OwnPosition() && SlPct>0.0 && entries==1 && firstStopDistance<=0.0 && initialRisk>0.0)
+   {firstStopDistance=initialRisk;Note("RECOVERY_RETRY_DISTANCE","Recovered original stop distance from the live first-attempt position");}
+   if(retryArmed && (SlPct<=0.0 || firstStopDistance<=0.0 || firstSide==0 || entries!=1 || targetFilled))
+   {retryArmed=false;retryEligibleAfter=0;Note("RECOVERY_RETRY_DISARMED","Stored retry lacks a verifiable original stop or target state");}
    SigmaStateSave();
 }
 datetime SigmaDate(int year,int month,int date)

@@ -634,10 +634,10 @@ bool Open(int side,double stop,double target,double distance)
    Note("ENTRY",StringFormat("model=Flash side=%d lots=%f fill=%f sl=%f tp=%f modeledCost=%f",side,volume,trade.ResultPrice(),stop,target,modelCost));
    return true;
 }
-// Flash M1 HIGH trail â€” different from Flash M1 close trail.
-// Activates when best completed M1 high >= entry + FlashTrailActivatePoints*tick.
-// Tightens stop to bestHigh - FlashTrailDistancePoints*tick (rounded, never widens).
-// If last completed M1 CLOSE already at/below new trail â†’ stage CloseOwned.
+// Flash M1 HIGH trail.
+// Activates when the best completed M1 high reaches entry + 70 index price points.
+// Desired stop is best completed M1 high - 25 index price points; tick size is used only to round the stop to a valid price.
+// If the last completed M1 CLOSE is already at/below the new trail, stage CloseOwned.
 void ManageClosedMinute()
 {
    if(runtimeRecoveryHold || runtimeClosePending || !OwnPosition() || initialRisk<=0) return;
@@ -664,7 +664,7 @@ void ManageClosedMinute()
    runtimeTrailLastBar=flashTrailLastBar; // Keep recovery in sync
    FlashStateSave();
    if(!flashTrailActive) return;
-   // Compute desired trail stop: best M1 high - 25 ticks, rounded inward (down for long)
+   // Compute desired trail stop: best completed M1 high minus 25 index price points, rounded down to a valid tick for this long-only trail.
    double desired=NormalizeDouble(MathFloor((flashPeakM1High-FlashTrailDistancePoints)/tick+1e-9)*tick,_Digits);
    if(desired<=sl) return; // Never widen
    // Swap floor: if accrued swap is negative (cost), ensure trail does not fall below cost-covered+swap.

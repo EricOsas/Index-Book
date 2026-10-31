@@ -355,7 +355,9 @@ int overnightExits=0;
 string carryDetails="";
 int entries=0,daysReady=0,daysRejected=0,invalidBrackets=0,failedOrders=0;
 int firstSide=0;
+double firstStopDistance=0;
 bool retryArmed=false;
+bool targetFilled=false;
 datetime retryEligibleAfter=0;
 bool rangeReady=false,armed=false,beDone=false;
 bool dayWaiting=false,dayRejected=false;
@@ -499,7 +501,7 @@ bool RejectDay(string reason)
 }
 void ResetDay(datetime now)
 {
-   day=SigmaDay(now); entries=0; firstSide=0; retryArmed=false; retryEligibleAfter=0;
+   day=SigmaDay(now); entries=0; firstSide=0; firstStopDistance=0; retryArmed=false; retryEligibleAfter=0;targetFilled=false;
    rangeReady=false; armed=false; beDone=false;
    rthOpenReady=false; rthOpen=0;
    dayValid=false;
@@ -665,9 +667,9 @@ bool Open(int side,double stop,double target,double distance)
    double volume=1.0;
    double unitRisk=0;
    
-   if(SlPct>0.0)
+   double stopDist = distance>0.0 ? distance : entry*(SlPct/100.0);
+   if(stopDist>0.0)
    {
-      double stopDist = entry * (SlPct / 100.0);
       stop = RoundPrice(entry - side * stopDist);
       target = RoundPrice(entry + side * stopDist * 3.0);
       if(!SigmaBracket(side,entry,stop,target)) {invalidBrackets++;Note("INVALID_BRACKET",StringFormat("%d %f %f %f",side,entry,stop,target));return false;}
@@ -707,8 +709,8 @@ bool Open(int side,double stop,double target,double distance)
    double filledVolume=trade.ResultVolume()>0 ? trade.ResultVolume() : volume;
    entryCommissionPerLot=commission;modelCostPerLot=friction;modelCost=friction*filledVolume;totalCost+=modelCost;ownedEntryTime=TimeCurrent();
    entries++;
-   if(entries==1) firstSide=side;
-   retryArmed=false;retryEligibleAfter=0;
+   if(entries==1){firstSide=side;firstStopDistance=initialRisk;}
+   retryArmed=false;retryEligibleAfter=0;targetFilled=false;
    worstRisk=MathMax(worstRisk,unitRisk*volume);
    SigmaRememberBracket(trade.ResultPrice(),stop,target);
    SigmaDrawFill(side,TimeCurrent(),trade.ResultPrice(),"Entry");
@@ -1010,12 +1012,14 @@ void OnTick()
    }
    
    // 5. Normal breakout entry
-   if(side!=0 && minute<cutoff && SigmaCanEnter(minute,StartMinute,cutoff,entries,SigmaMaxAttempts))
+   datetime signalEnd=b[0].time+PeriodSeconds(sourceTF);
+   bool retryEntry=entries==1 && retryArmed && SlPct>0.0 && firstStopDistance>0.0 && !targetFilled && side==firstSide && signalEnd>retryEligibleAfter;
+   if(side!=0 && minute<cutoff && SigmaCanEnter(minute,StartMinute,cutoff,entries,SigmaMaxAttempts) && (entries==0 || retryEntry))
    {
-      Note("SIGMA_SIGNAL",StringFormat("sourceOpen=%s sourceClose=%s close=%f upperBand=%f lowerBand=%f side=%d slot=%d",
+      Note(retryEntry ? "SIGMA_RETRY_SIGNAL" : "SIGMA_SIGNAL",StringFormat("sourceOpen=%s sourceClose=%s close=%f upperBand=%f lowerBand=%f side=%d slot=%d",
            TimeToString(b[0].time,TIME_DATE|TIME_SECONDS),TimeToString(b[0].time+PeriodSeconds(sourceTF),TIME_DATE|TIME_SECONDS),
            b[0].close,sigmaUpperBand,sigmaLowerBand,side,sigmaCurrentSlot));
-      Open(side,0,0,0);
+      Open(retryEntry ? firstSide : side,0,0,retryEntry ? firstStopDistance*SigmaRetryStopFraction : 0.0);
    }
 }
 void OnTradeTransaction(const MqlTradeTransaction &tx,const MqlTradeRequest &request,const MqlTradeResult &result)
@@ -1048,7 +1052,8 @@ void OnTradeTransaction(const MqlTradeTransaction &tx,const MqlTradeRequest &req
    int di=(int)((SigmaDay(t)-D'2020.01.01')/86400);
    if(di>=0 && di<ArraySize(dailyNet)) dailyNet[di]+=net;
    if(net>0)netWins+=net;else netLosses-=net;
-   if(entries==1 && !OwnPosition() && exitReason==DEAL_REASON_SL)
+   if(entries==1 && exitReason==DEAL_REASON_TP) targetFilled=true;
+   if(entries==1 && !OwnPosition() && exitReason==DEAL_REASON_SL && !targetFilled)
    {
       SigmaArmSameSideRetry(t,net<0,exitReason);
    }
@@ -1057,7 +1062,7 @@ void OnTradeTransaction(const MqlTradeTransaction &tx,const MqlTradeRequest &req
 }
 void SigmaArmSameSideRetry(datetime t,bool losingExit,int exitReason)
 {
-   retryArmed=entries==1 && firstSide!=0 && losingExit && exitReason==DEAL_REASON_SL;
+   retryArmed=SlPct>0.0 && firstStopDistance>0.0 && entries==1 && firstSide!=0 && !targetFilled && losingExit && exitReason==DEAL_REASON_SL;
    retryEligibleAfter=retryArmed ? t : 0;
    if(retryArmed) Note("RETRY_ARMED",StringFormat("side=%d eligibleAfter=%s",firstSide,TimeToString(t,TIME_DATE|TIME_SECONDS)));
    SigmaStateSave();

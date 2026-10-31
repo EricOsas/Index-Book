@@ -976,6 +976,10 @@ private static class ProductExposure
 
 	private double initialRisk;
 
+	private double firstStopDistance;
+
+	private bool stopExitFilled;
+
 	private double peakR;
 
 	private double actualFees;
@@ -1896,7 +1900,9 @@ private static class ProductExposure
 			using (BinaryReader binaryReader = new BinaryReader(File.OpenRead(recoveryPath)))
 			{
 				string recoveryVersion = binaryReader.ReadString();
-				if ((recoveryVersion != "IndependentNT8.SigmaN3.v2" && recoveryVersion != "IndependentNT8.v2") || binaryReader.ReadString() != recoveryIdentity)
+				bool hasRetryState = recoveryVersion == "IndependentNT8.v2" || recoveryVersion == "IndependentNT8.SigmaN3.v3";
+				bool hasRetryDistanceState = recoveryVersion == "IndependentNT8.SigmaN3.v3";
+				if ((recoveryVersion != "IndependentNT8.SigmaN3.v2" && recoveryVersion != "IndependentNT8.v2" && !hasRetryDistanceState) || binaryReader.ReadString() != recoveryIdentity)
 				{
 					throw new InvalidDataException("Recovery account, connection, instrument or model mismatch");
 				}
@@ -1925,10 +1931,12 @@ private static class ProductExposure
 				}
 				sessionDay = new DateTime(binaryReader.ReadInt64());
 				entryCount = binaryReader.ReadInt32();
-				entryDirection = recoveryVersion == "IndependentNT8.v2" ? binaryReader.ReadInt32() : 0;
-				retryArmed = recoveryVersion == "IndependentNT8.v2" && binaryReader.ReadBoolean();
-				retryEligibleAt = recoveryVersion == "IndependentNT8.v2" ? new DateTime(binaryReader.ReadInt64()) : DateTime.MinValue;
-				targetFilled = recoveryVersion == "IndependentNT8.v2" && binaryReader.ReadBoolean();
+				entryDirection = hasRetryState ? binaryReader.ReadInt32() : 0;
+				retryArmed = hasRetryState && binaryReader.ReadBoolean();
+				retryEligibleAt = hasRetryState ? new DateTime(binaryReader.ReadInt64()) : DateTime.MinValue;
+				targetFilled = hasRetryState && binaryReader.ReadBoolean();
+				stopExitFilled = hasRetryDistanceState && binaryReader.ReadBoolean();
+				firstStopDistance = hasRetryDistanceState ? binaryReader.ReadDouble() : 0.0;
 				entered = binaryReader.ReadInt32();
 				exited = binaryReader.ReadInt32();
 				entryPending = binaryReader.ReadBoolean();
@@ -2010,6 +2018,17 @@ private static class ProductExposure
 					throw new InvalidDataException("Unexpected journal data");
 				}
 			}
+			if (!hasRetryDistanceState && entryCount == 1 && ownedNet != 0)
+			{
+				if (entryDirection == 0) entryDirection = Math.Sign(ownedNet);
+				if (SlPct > 0.0 && initialRisk > 0.0) firstStopDistance = initialRisk;
+			}
+			if (retryArmed && (SlPct <= 0.0 || firstStopDistance <= 0.0 || entryDirection == 0 || entryCount != 1 || targetFilled))
+			{
+				retryArmed = false;
+				retryEligibleAt = DateTime.MinValue;
+				Print(Name + ": disarmed legacy retry because its original stop distance or target state cannot be verified");
+			}
 			recoveredTrade = ownedNet != 0 || entryPending || closing;
 			recoveryReady = true;
 			if (!string.IsNullOrEmpty(closeReason) && closeReason.StartsWith("BrokerAccountRestricted:", StringComparison.Ordinal))
@@ -2047,7 +2066,7 @@ private static class ProductExposure
 			using (FileStream fileStream = new FileStream(text, FileMode.Create, FileAccess.Write, FileShare.None))
 			{
 				using BinaryWriter binaryWriter = new BinaryWriter(fileStream);
-				binaryWriter.Write("IndependentNT8.v2");
+				binaryWriter.Write("IndependentNT8.SigmaN3.v3");
 				binaryWriter.Write(recoveryIdentity);
 				binaryWriter.Write(owner);
 				binaryWriter.Write(sequence);
@@ -2066,6 +2085,8 @@ private static class ProductExposure
 				binaryWriter.Write(retryArmed);
 				binaryWriter.Write(retryEligibleAt.Ticks);
 				binaryWriter.Write(targetFilled);
+				binaryWriter.Write(stopExitFilled);
+				binaryWriter.Write(firstStopDistance);
 				binaryWriter.Write(entered);
 				binaryWriter.Write(exited);
 				binaryWriter.Write(entryPending);
@@ -3288,6 +3309,12 @@ private static class ProductExposure
 		sessionDay = day.Date;
 		direction = 0;
 		entryCount = 0;
+		entryDirection = 0;
+		firstStopDistance = 0.0;
+		retryArmed = false;
+		retryEligibleAt = DateTime.MinValue;
+		targetFilled = false;
+		stopExitFilled = false;
 		
 
 		pendingSigmaFlipSide = 0;
@@ -3377,10 +3404,11 @@ private static class ProductExposure
 		sessionPv = sessionVolume = 0; previousCompletedVwap = 0; havePreviousVwap = false;
 	}
 
-	private int CalculateSigmaQuantity(double entryQuote, int side)
+	private int CalculateSigmaQuantity(double entryQuote, int side, double customStopDistance = 0.0)
 	{
-		if (SlPct <= 0.0) return FixedLot;
-		double stopDistance = entryQuote * SlPct / 100.0;
+		if (SlPct <= 0.0 && customStopDistance <= 0.0) return FixedLot;
+		double stopDistance = customStopDistance > 0.0 ? customStopDistance : entryQuote * SlPct / 100.0;
+		if (!FinitePositive(stopDistance)) return 0;
 		plannedStop = Round(entryQuote - side * stopDistance);
 		plannedTarget = 0.0;
 		double perContract = Math.Abs(entryQuote - plannedStop) * ExecutionInstrument.MasterInstrument.PointValue + CostPerContract;
@@ -3475,7 +3503,12 @@ private static class ProductExposure
 						}
 					}
 					else if (!entryPending && !closing && EnableTrading)
-						SubmitSigmaEntry(side, bar.Close, endEt);
+					{
+						if (entryCount == 0)
+							SubmitSigmaEntry(side, bar.Close, endEt);
+						else if (entryCount == 1 && retryArmed && side == entryDirection && SlPct > 0.0 && firstStopDistance > 0.0 && !targetFilled && endEt > retryEligibleAt)
+							SubmitSigmaEntry(side, bar.Close, endEt, true);
+					}
 				}
 			}
 		}
@@ -3495,14 +3528,27 @@ private static class ProductExposure
 		}
 	}
 
-	private void SubmitSigmaEntry(int side, double signalClose, DateTime signalEndEt)
+	private void SubmitSigmaEntry(int side, double signalClose, DateTime signalEndEt, bool retry = false)
 	{
 		if (signalEndEt.Date != sessionDay || signalEndEt.TimeOfDay.TotalMinutes >= 944 || entryPending || ownedNet != 0 || closing) return;
+		if (retry && (entryCount != 1 || !retryArmed || side != entryDirection || SlPct <= 0.0 || firstStopDistance <= 0.0 || targetFilled || signalEndEt <= retryEligibleAt)) return;
 		if (CurrentBars[executionSeries] < 0) { status = "Waiting for M1 execution history"; return; }
 		double quote = State == State.Realtime ? (side > 0 ? GetCurrentAsk(executionSeries) : GetCurrentBid(executionSeries)) : signalClose;
 		if (!FinitePositive(quote)) return;
-		int qty = CalculateSigmaQuantity(quote, side);
+		int qty = CalculateSigmaQuantity(quote, side, retry ? firstStopDistance * RetryStopFraction : 0.0);
 		if (qty < 1) { status = "Sigma setup skipped by sizing/risk filter"; return; }
+		if (entryCount == 0)
+		{
+			entryDirection = side;
+			firstStopDistance = 0.0;
+			retryArmed = false;
+			retryEligibleAt = DateTime.MinValue;
+		}
+		if (retry)
+		{
+			retryArmed = false;
+			retryEligibleAt = DateTime.MinValue;
+		}
 		lastSignalClose = signalClose;
 		currentTradeSide = side;
 		entryQuoteAtSignal = quote;
@@ -3510,6 +3556,8 @@ private static class ProductExposure
 		if (SlPct <= 0) { plannedStop = 0; plannedTarget = 0; }
 		entryPending = true;
 		entryCount++;
+		targetFilled = false;
+		stopExitFilled = false;
 		entered = exited = ownedNet = 0;
 		entrySum = exitSum = actualFees = peakR = 0;
 		brackets.Clear();
@@ -3810,6 +3858,7 @@ private static class ProductExposure
 			bool stopRequired = RequiresStopProtection();
 			bool targetRequired = RequiresTargetProtection();
 			initialRisk = stopRequired ? Math.Abs(avgEntry - plannedStop) : 0.0;
+			if (entryCount == 1) firstStopDistance = (SlPct > 0.0 && stopRequired) ? initialRisk : 0.0;
 			if ((stopRequired && (initialRisk <= 0 || side * (price - plannedStop) <= 0)) || (targetRequired && side * (plannedTarget - price) <= 0))
 			{
 				suspended = true;
@@ -3841,6 +3890,8 @@ private static class ProductExposure
 		}
 		else
 		{
+			if (brackets.Any(b => b.StopName == order.Name)) stopExitFilled = true;
+			if (brackets.Any(b => b.TargetName == order.Name)) targetFilled = true;
 			exited += quantity;
 			exitSum += price * quantity;
 			Record("EXIT", NewYork(time), order.Name + " price=" + F(price) + " qty=" + quantity + ";tradeId=" + entryName + ";executionId=" + executionId);
@@ -3855,6 +3906,8 @@ private static class ProductExposure
 
 	private void Complete(DateTime time)
 	{
+		bool completedByStop = stopExitFilled;
+		string completedCloseReason = closeReason;
 		if (feeTrade != null) feeTrade.Closed = feeTrade.EntryQuantity > 0 && feeTrade.EntryQuantity == feeTrade.ExitQuantity;
 		if (executionVisual != null)
 		{
@@ -3877,6 +3930,8 @@ private static class ProductExposure
 		currentTradeSide = 0;
 		initialRisk = 0;
 		plannedStop = plannedTarget = 0;
+		if (completedByStop) ArmSameSideRetry(time, true, modeledNet < 0.0, completedCloseReason);
+		stopExitFilled = false;
 
 		int flipSide = pendingSigmaFlipSide;
 		double flipClose = pendingSigmaFlipSignalClose;
@@ -3894,11 +3949,12 @@ private static class ProductExposure
 			SubmitSigmaEntry(flipSide, flipClose, flipEnd);
 	}
 
-	private void ArmSameSideRetry(DateTime time, bool losingExit, string exitCloseReason)
+	private void ArmSameSideRetry(DateTime time, bool stopExit, bool losingExit, string exitCloseReason)
 	{
-		// Retry only after a losing broker protective-stop exit: any strategy-initiated close (time, partial, recovery, trail-cross, invalid fill) leaves exitCloseReason set.
-		retryArmed = entryCount == 1 && entryDirection != 0 && losingExit && !targetFilled && string.IsNullOrEmpty(exitCloseReason);
+		// Only a losing protective-stop exit qualifies. Time, reversal, manual, partial, and recovery closes never arm a retry.
+		retryArmed = stopExit && SlPct > 0.0 && firstStopDistance > 0.0 && entryCount == 1 && entryDirection != 0 && losingExit && !targetFilled && string.IsNullOrEmpty(exitCloseReason);
 		retryEligibleAt = retryArmed ? time : DateTime.MinValue;
+		if (retryArmed) Record("RETRY_ARMED", time, "side=" + entryDirection + ";firstStopDistance=" + F(firstStopDistance) + ";retryStopDistance=" + F(firstStopDistance * RetryStopFraction));
 	}
 
 	private void BeginClose(string reason)
