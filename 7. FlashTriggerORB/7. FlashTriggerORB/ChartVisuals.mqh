@@ -1,12 +1,12 @@
-#ifndef OBR_STRATEGY_VISUALS
-#define OBR_STRATEGY_VISUALS
+#ifndef FLASH_STRATEGY_VISUALS
+#define FLASH_STRATEGY_VISUALS
 long gtVisualChart=0;
 int gtPane=INVALID_HANDLE;
 string gtPaneName="";
 double gtLastEntry=0,gtLastStop=0,gtLastTarget=0;
 datetime gtLastBracketTime=0;
-void OBRRememberBracket(double entry,double stop,double target){gtLastEntry=entry;gtLastStop=stop;gtLastTarget=target;gtLastBracketTime=ownedEntryTime>0 ? ownedEntryTime : TimeCurrent();}
-void OBRVisualFit(datetime reference=0)
+void FlashRememberBracket(double entry,double stop,double target){gtLastEntry=entry;gtLastStop=stop;gtLastTarget=target;gtLastBracketTime=ownedEntryTime>0 ? ownedEntryTime : TimeCurrent();}
+void FlashVisualFit(datetime reference=0)
 {
    double low=DBL_MAX,high=-DBL_MAX;
    MqlRates b[];
@@ -22,18 +22,18 @@ void OBRVisualFit(datetime reference=0)
    ChartSetInteger(gtVisualChart,CHART_SCALE,3);ChartNavigate(gtVisualChart,CHART_END,reference>0 ? -iBarShift(_Symbol,sourceTF,reference,false) : 0);
    ChartRedraw(gtVisualChart);
 }
-string OBRVisualPrefix(){return "OBR_"+IntegerToString((long)Magic)+"_";}
-datetime OBRVisualDay(datetime now){return OBRDay(now)+(OBRMinute(now)>=23*60 ? 86400 : 0);}
-bool OBRVisualEnabled(){return ShowVisuals && (!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_VISUAL_MODE));}
+string FlashVisualPrefix(){return "FLASH_"+IntegerToString((long)Magic)+"_";}
+datetime FlashVisualDay(datetime now){return FlashDay(now)+(FlashMinute(now)>=23*60 ? 86400 : 0);}
+bool FlashVisualEnabled(){return ShowVisuals && (!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_VISUAL_MODE));}
 bool gtVisualSuspended=false;
-string OBRVisualFault()
+string FlashVisualFault()
 {
    bool tester=MQLInfoInteger(MQL_TESTER);
    if(!tester && !TerminalInfoInteger(TERMINAL_CONNECTED))return "Disconnected | waiting for server";
    if(!tester && !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))return "Terminal trading disabled";
    if(!tester && !MQLInfoInteger(MQL_TRADE_ALLOWED))return "EA trading permission disabled";
    if(!tester && !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))return "Server account trading disabled";
-   if(!tester && !OBRRuntimeAccountContextValid())return "Account context changed | trading blocked";
+   if(!tester && !FlashRuntimeAccountContextValid())return "Account context changed | trading blocked";
    if(runtimeCloseRejected)return "Close rejected | retry paused";
    if(runtimeCloseAttention)return "Close unconfirmed | recovery pending";
    if(runtimeRecoveryHold)return "Recovery needs attention | broker SL/TP retained";
@@ -45,13 +45,13 @@ string OBRVisualFault()
    if(dayWaiting && dataWaitReason!="")return "Data unavailable | "+dataWaitReason;
    return "";
 }
-bool OBRVisualDataEnabled(){return OBRVisualEnabled() && OBRVisualFault()=="";}
-void OBRVisualSuspend(bool blocked)
+bool FlashVisualDataEnabled(){return FlashVisualEnabled() && FlashVisualFault()=="";}
+void FlashVisualSuspend(bool blocked)
 {
    if(blocked==gtVisualSuspended)return;
    gtVisualSuspended=blocked;
    // Preserve chart history for restoration; touch only this EA's own namespace.
-   string prefix=OBRVisualPrefix(),panel=OBRPanelPrefix();
+   string prefix=FlashVisualPrefix(),panel=FlashPanelPrefix();
    for(int index=ObjectsTotal(gtVisualChart,-1,-1)-1;index>=0;index--)
    {
       string name=ObjectName(gtVisualChart,index,-1,-1);
@@ -70,11 +70,11 @@ void OBRVisualSuspend(bool blocked)
    }
    ChartRedraw(gtVisualChart);
 }
-void OBRInitVisual()
+void FlashInitVisual()
 {
-   if(!OBRVisualEnabled()) return;
+   if(!FlashVisualEnabled()) return;
    string oldRows[]={"Title","Clock","Metrics","State"};
-   for(int i=0;i<ArraySize(oldRows);i++)ObjectDelete(gtVisualChart,OBRVisualPrefix()+oldRows[i]);
+   for(int i=0;i<ArraySize(oldRows);i++)ObjectDelete(gtVisualChart,FlashVisualPrefix()+oldRows[i]);
    ChartSetInteger(gtVisualChart,CHART_EVENT_OBJECT_CREATE,true);
 
    // Remove only objects owned by this EA under its former object namespace.
@@ -83,16 +83,16 @@ void OBRInitVisual()
    for(int i=ObjectsTotal(gtVisualChart,-1,-1)-1;i>=0;i--)
    {
       string name=ObjectName(gtVisualChart,i,-1,-1);
-      if(StringFind(name,OBRVisualPrefix())==0 && StringFind(name,OBRPanelPrefix())!=0)
+      if(StringFind(name,FlashVisualPrefix())==0 && StringFind(name,FlashPanelPrefix())!=0)
       {
          ObjectSetInteger(gtVisualChart,name,OBJPROP_BACK,true);
          if(ObjectGetInteger(gtVisualChart,name,OBJPROP_TYPE)==OBJ_RECTANGLE)
          {ObjectSetInteger(gtVisualChart,name,OBJPROP_FILL,false);ObjectSetInteger(gtVisualChart,name,OBJPROP_WIDTH,1);}
       }
    }
-   ObjectsDeleteAll(gtVisualChart,OBRVisualPrefix()+"VWAP");
-   ObjectDelete(gtVisualChart,OBRVisualPrefix()+"Session Opening Price (SOP)");
-   ObjectDelete(gtVisualChart,OBRVisualPrefix()+"Noise Up Barrier (NUB)");
+   ObjectsDeleteAll(gtVisualChart,FlashVisualPrefix()+"VWAP");
+   ObjectDelete(gtVisualChart,FlashVisualPrefix()+"Session Opening Price (SOP)");
+   ObjectDelete(gtVisualChart,FlashVisualPrefix()+"Noise Up Barrier (NUB)");
    ChartSetInteger(gtVisualChart,CHART_MODE,CHART_CANDLES);
    ChartSetInteger(gtVisualChart,CHART_COLOR_BACKGROUND,clrBlack);
    ChartSetInteger(gtVisualChart,CHART_COLOR_FOREGROUND,clrSilver);
@@ -102,22 +102,22 @@ void OBRInitVisual()
    ChartSetInteger(gtVisualChart,CHART_COLOR_CHART_DOWN,clrDarkOrange);
    ChartSetInteger(gtVisualChart,CHART_SHOW_GRID,false);
    ChartSetInteger(gtVisualChart,CHART_AUTOSCROLL,true);ChartSetInteger(gtVisualChart,CHART_SHIFT,true);
-   if(Model==OvernightBiasRangeBreakout)
+   if(Model==FlashTriggerORB)
    {
-      gtPaneName=OBROutputFamily+" ADX "+IntegerToString((long)Magic);
+      gtPaneName=FlashOutputFamily+" ADX "+IntegerToString((long)Magic);
       for(int window=(int)ChartGetInteger(gtVisualChart,CHART_WINDOWS_TOTAL)-1;window>=1;window--)
          for(int index=ChartIndicatorsTotal(gtVisualChart,window)-1;index>=0;index--)
             if(ChartIndicatorName(gtVisualChart,window,index)==gtPaneName) ChartIndicatorDelete(gtVisualChart,window,gtPaneName);
       gtPane=iCustom(_Symbol,(ENUM_TIMEFRAMES)Period(),"::ADXPane.ex5",ADXPeriod,gtPaneName);
       if(gtPane!=INVALID_HANDLE && !ChartIndicatorAdd(gtVisualChart,(int)ChartGetInteger(gtVisualChart,CHART_WINDOWS_TOTAL),gtPane))
-         PrintFormat("OBR_DISPLAY_ADX_ADD_FAILED error=%d",GetLastError());
+         PrintFormat("FLASH_DISPLAY_ADX_ADD_FAILED error=%d",GetLastError());
    }
 }
 
 const int PX=10,PY=20,PW=210,PH=198,HH=32;
 bool obrPanelCollapsed=false,obrPanelRestack=false;
-string OBRPanelPrefix(){return OBRVisualPrefix()+"PANEL_";}
-void OBRPanelRect(string name, int x, int y, int w, int h, color bg, color bdr)
+string FlashPanelPrefix(){return FlashVisualPrefix()+"PANEL_";}
+void FlashPanelRect(string name, int x, int y, int w, int h, color bg, color bdr)
 {
     if(ObjectFind(gtVisualChart, name) < 0)
     {
@@ -138,7 +138,7 @@ void OBRPanelRect(string name, int x, int y, int w, int h, color bg, color bdr)
     ObjectSetInteger(gtVisualChart, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
 }
 
-void OBRPanelLbl(string name, int x, int y, string text, int fs, color clr)
+void FlashPanelLbl(string name, int x, int y, string text, int fs, color clr)
 {
     if(ObjectFind(gtVisualChart, name) < 0)
     {
@@ -157,17 +157,17 @@ void OBRPanelLbl(string name, int x, int y, string text, int fs, color clr)
     if(ObjectGetString(gtVisualChart, name, OBJPROP_TEXT) != text) ObjectSetString(gtVisualChart, name, OBJPROP_TEXT, text);
 }
 
-void OBRPanelShell()
+void FlashPanelShell()
 {
-    if(!OBRVisualEnabled()) return;
+    if(!FlashVisualEnabled()) return;
     int height=obrPanelCollapsed ? HH : PH;
-    OBRPanelRect(OBRPanelPrefix()+"SHD2", PX+5, PY+5, PW, height, C'6,6,6',    C'6,6,6');
-    OBRPanelRect(OBRPanelPrefix()+"SHD1", PX+2, PY+2, PW, height, C'12,12,12', C'12,12,12');
-    OBRPanelRect(OBRPanelPrefix()+"BG",   PX,   PY,   PW, height, clrBlack,    C'52,68,92');
-    OBRPanelRect(OBRPanelPrefix()+"HDR",  PX,   PY,   PW, HH, C'18,22,28', C'52,68,92');
-    OBRPanelRect(OBRPanelPrefix()+"HAIR", PX,   PY+HH, PW, 1, C'52,68,92', C'52,68,92');
-    OBRPanelLbl(OBRPanelPrefix()+"TTL",   PX+8, PY+8, "Overnight Bias Breakout", 9, C'190,210,236');
-    string button=OBRPanelPrefix()+"BTN";
+    FlashPanelRect(FlashPanelPrefix()+"SHD2", PX+5, PY+5, PW, height, C'6,6,6',    C'6,6,6');
+    FlashPanelRect(FlashPanelPrefix()+"SHD1", PX+2, PY+2, PW, height, C'12,12,12', C'12,12,12');
+    FlashPanelRect(FlashPanelPrefix()+"BG",   PX,   PY,   PW, height, clrBlack,    C'52,68,92');
+    FlashPanelRect(FlashPanelPrefix()+"HDR",  PX,   PY,   PW, HH, C'18,22,28', C'52,68,92');
+    FlashPanelRect(FlashPanelPrefix()+"HAIR", PX,   PY+HH, PW, 1, C'52,68,92', C'52,68,92');
+    FlashPanelLbl(FlashPanelPrefix()+"TTL",   PX+8, PY+8, "Flash Trigger ORB", 9, C'190,210,236');
+    string button=FlashPanelPrefix()+"BTN";
     if(ObjectFind(gtVisualChart,button)<0)
     {
         ObjectCreate(gtVisualChart,button,OBJ_BUTTON,0,0,0);
@@ -189,49 +189,49 @@ void OBRPanelShell()
     if(obrPanelCollapsed)
     {
         string rows[]={"SRV","HI","LO","SZ","BUY","SEL","CST","COV","SL"};
-        for(int i=0;i<ArraySize(rows);i++) ObjectDelete(gtVisualChart,OBRPanelPrefix()+rows[i]);
+        for(int i=0;i<ArraySize(rows);i++) ObjectDelete(gtVisualChart,FlashPanelPrefix()+rows[i]);
     }
 }
 
-void OBRPanelRows(datetime clock,string state,double adx,double nub)
+void FlashPanelRows(datetime clock,string state,double adx,double nub)
 {
-   if(obrPanelRestack){obrPanelRestack=false;ObjectsDeleteAll(gtVisualChart,OBRPanelPrefix());}
-   OBRPanelShell();
+   if(obrPanelRestack){obrPanelRestack=false;ObjectsDeleteAll(gtVisualChart,FlashPanelPrefix());}
+   FlashPanelShell();
    if(obrPanelCollapsed)return;
-   string p=OBRPanelPrefix();
-   OBRPanelLbl(p+"SRV",PX+8,PY+40,clockReady ? "NY: "+TimeToString(OBRNewYork(clock),TIME_SECONDS)+" CT: "+TimeToString(OBRCentral(clock),TIME_SECONDS) : "Clock history loading",8,C'140,158,185');
-   OBRPanelLbl(p+"HI",PX+8,PY+59,"Range high: "+(bias!=0 && orHigh>0?DoubleToString(orHigh,2):"--"),8,C'120,210,150');
-   OBRPanelLbl(p+"LO",PX+8,PY+76,"Range low: "+(bias!=0 && orLow>0?DoubleToString(orLow,2):"--"),8,C'210,100,100');
-   OBRPanelLbl(p+"SZ",PX+8,PY+93,StringFormat("ADX: %.3f / 20 | Bias: %s",adx,bias>0?"Long":bias<0?"Short":"Neutral"),8,C'140,158,185');
-   OBRPanelLbl(p+"BUY",PX+8,PY+112,"Trades "+IntegerToString(entries)+"/1",8,C'120,210,150');
-   OBRPanelLbl(p+"SEL",PX+112,PY+112,OwnPosition()?"Position: open":"Position: flat",8,C'210,100,100');
-   OBRPanelLbl(p+"CST",PX+8,PY+132,StringFormat("Comm/lot: $%.2f | Slip: %dp",OBRCommissionEstimate(),SlippagePoints),8,C'140,200,240');
-   OBRPanelLbl(p+"COV",PX+8,PY+149,"BE / Trail: costs covered",8,C'190,180,120');
-   string display=OBRSizingLabel()+" | "+state;
-   OBRPanelLbl(p+"SL",PX+8,PY+166,StringSubstr(display,0,31),8,C'200,70,70');
+   string p=FlashPanelPrefix();
+   FlashPanelLbl(p+"SRV",PX+8,PY+40,clockReady ? "NY: "+TimeToString(FlashNewYork(clock),TIME_SECONDS)+" CT: "+TimeToString(FlashCentral(clock),TIME_SECONDS) : "Clock history loading",8,C'140,158,185');
+   FlashPanelLbl(p+"HI",PX+8,PY+59,"Range high: "+(bias!=0 && orHigh>0?DoubleToString(orHigh,2):"--"),8,C'120,210,150');
+   FlashPanelLbl(p+"LO",PX+8,PY+76,"Range low: "+(bias!=0 && orLow>0?DoubleToString(orLow,2):"--"),8,C'210,100,100');
+   FlashPanelLbl(p+"SZ",PX+8,PY+93,StringFormat("ADX: %.3f / 20 | Bias: %s",adx,bias>0?"Long":bias<0?"Short":"Neutral"),8,C'140,158,185');
+   FlashPanelLbl(p+"BUY",PX+8,PY+112,"Trades "+IntegerToString(entries)+"/1",8,C'120,210,150');
+   FlashPanelLbl(p+"SEL",PX+112,PY+112,OwnPosition()?"Position: open":"Position: flat",8,C'210,100,100');
+   FlashPanelLbl(p+"CST",PX+8,PY+132,StringFormat("Comm/lot: $%.2f | Slip: %dp",FlashCommissionEstimate(),SlippagePoints),8,C'140,200,240');
+   FlashPanelLbl(p+"COV",PX+8,PY+149,"BE / Trail: costs covered",8,C'190,180,120');
+   string display=FlashSizingLabel()+" | "+state;
+   FlashPanelLbl(p+"SL",PX+8,PY+166,StringSubstr(display,0,31),8,C'200,70,70');
    ObjectSetString(gtVisualChart,p+"SL",OBJPROP_TOOLTIP,display);
 }
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
 {
-   if(!OBRVisualEnabled())return;
-   if(id==CHARTEVENT_OBJECT_CREATE && StringFind(sparam,OBRPanelPrefix())!=0)
+   if(!FlashVisualEnabled())return;
+   if(id==CHARTEVENT_OBJECT_CREATE && StringFind(sparam,FlashPanelPrefix())!=0)
    {obrPanelRestack=true;return;}
-   if(id==CHARTEVENT_OBJECT_CLICK && sparam==OBRPanelPrefix()+"BTN")
-   {obrPanelCollapsed=!obrPanelCollapsed;OBRDraw();ChartRedraw(gtVisualChart);}
+   if(id==CHARTEVENT_OBJECT_CLICK && sparam==FlashPanelPrefix()+"BTN")
+   {obrPanelCollapsed=!obrPanelCollapsed;FlashDraw();ChartRedraw(gtVisualChart);}
 }
 
-datetime OBRHistoryFloor=0,OBRHistoryRendered=0;
+datetime FlashHistoryFloor=0,FlashHistoryRendered=0;
 bool obrBrokerVisualDirty=true;
 bool obrBrokerVisualInitialized=false;
-struct OBRBrokerView
+struct FlashBrokerView
 {
    ulong id;int side;datetime entered,exited;double entryValue,volume,exitValue,exitVolume,stop;bool mixed;
 };
-OBRBrokerView obrBrokerView[];
-void OBRTradeBox(string key,datetime left,datetime right,double entry,double edge,color ink)
+FlashBrokerView obrBrokerView[];
+void FlashTradeBox(string key,datetime left,datetime right,double entry,double edge,color ink)
 {
-   if(!OBRVisualDataEnabled())return;
-   string id=OBRVisualPrefix()+key;
+   if(!FlashVisualDataEnabled())return;
+   string id=FlashVisualPrefix()+key;
    if(right<=left)right=left+1;
    if(ObjectFind(gtVisualChart,id)<0)ObjectCreate(gtVisualChart,id,OBJ_RECTANGLE,0,left,entry,right,edge);
    ObjectMove(gtVisualChart,id,0,left,entry);ObjectMove(gtVisualChart,id,1,right,edge);
@@ -241,9 +241,9 @@ void OBRTradeBox(string key,datetime left,datetime right,double entry,double edg
    ObjectSetInteger(gtVisualChart,id,OBJPROP_BACK,true);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_TIMEFRAMES,OBJ_ALL_PERIODS);
-   ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,"Overnight Bias Breakout | Broker execution | "+key);
+   ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,"Flash Trigger ORB | Broker execution | "+key);
 }
-void OBRPaintBrokerTrades(datetime now)
+void FlashPaintBrokerTrades(datetime now)
 {
    bool rebuild=obrBrokerVisualDirty;
    if(rebuild)
@@ -255,8 +255,8 @@ void OBRPaintBrokerTrades(datetime now)
       obrBrokerVisualInitialized=true;
       ArrayResize(obrBrokerView,0);
       // Retire average-price arrows from earlier builds; exact deal tickets replace them.
-      ObjectsDeleteAll(gtVisualChart,OBRVisualPrefix()+"Entry_");
-      ObjectsDeleteAll(gtVisualChart,OBRVisualPrefix()+"Exit_");
+      ObjectsDeleteAll(gtVisualChart,FlashVisualPrefix()+"Entry_");
+      ObjectsDeleteAll(gtVisualChart,FlashVisualPrefix()+"Exit_");
       for(int i=0;i<HistoryDealsTotal();i++)
       {
          ulong d=HistoryDealGetTicket(i);
@@ -299,8 +299,8 @@ void OBRPaintBrokerTrades(datetime now)
          for(int k=0;k<ArraySize(obrBrokerView);k++)if(obrBrokerView[k].id==position && !obrBrokerView[k].mixed){owned=true;break;}
          datetime at=(datetime)HistoryDealGetInteger(deal,DEAL_TIME);
          long type=HistoryDealGetInteger(deal,DEAL_TYPE);
-         if(!owned || at<OBRHistoryFloor || (type!=DEAL_TYPE_BUY && type!=DEAL_TYPE_SELL))continue;
-         OBRDrawFill(type==DEAL_TYPE_BUY?1:-1,at,HistoryDealGetDouble(deal,DEAL_PRICE),"Deal "+IntegerToString((long)deal));
+         if(!owned || at<FlashHistoryFloor || (type!=DEAL_TYPE_BUY && type!=DEAL_TYPE_SELL))continue;
+         FlashDrawFill(type==DEAL_TYPE_BUY?1:-1,at,HistoryDealGetDouble(deal,DEAL_PRICE),"Deal "+IntegerToString((long)deal));
       }
       obrBrokerVisualDirty=false;
    }
@@ -309,37 +309,37 @@ void OBRPaintBrokerTrades(datetime now)
       if(obrBrokerView[i].volume<=0 || obrBrokerView[i].mixed)continue;
       double entry=obrBrokerView[i].entryValue/obrBrokerView[i].volume;
       bool closed=obrBrokerView[i].exitVolume>=obrBrokerView[i].volume-1e-8;
-      if(closed && (!rebuild || obrBrokerView[i].exited<OBRHistoryFloor))continue;
+      if(closed && (!rebuild || obrBrokerView[i].exited<FlashHistoryFloor))continue;
       datetime right=closed?obrBrokerView[i].exited:(datetime)MathMax((double)now,(double)(obrBrokerView[i].entered+3*PeriodSeconds(_Period)));
       double exit=closed?obrBrokerView[i].exitValue/obrBrokerView[i].exitVolume:0;
       double stop=obrBrokerView[i].stop>0?obrBrokerView[i].stop:0;
       // Keep original order SL as risk geometry; an exit fill is not the initial stop.
       string tag="Broker "+IntegerToString((long)obrBrokerView[i].id);
-      if(stop>0)OBRTradeBox(tag+" risk",obrBrokerView[i].entered,right,entry,stop,C'55,57,68');
-      OBRLine(tag+" entry",entry,C'214,218,224',STYLE_SOLID,obrBrokerView[i].entered,right);
-      if(closed && obrBrokerView[i].side*(exit-entry)>0)OBRTradeBox(tag+" profit",obrBrokerView[i].entered,right,entry,exit,C'22,55,120');
+      if(stop>0)FlashTradeBox(tag+" risk",obrBrokerView[i].entered,right,entry,stop,C'55,57,68');
+      FlashLine(tag+" entry",entry,C'214,218,224',STYLE_SOLID,obrBrokerView[i].entered,right);
+      if(closed && obrBrokerView[i].side*(exit-entry)>0)FlashTradeBox(tag+" profit",obrBrokerView[i].entered,right,entry,exit,C'22,55,120');
       // Per-deal arrows above are authoritative; averages only define the position box.
    }
 }
 
-void OBRDrawFill(int side,datetime time,double price,string label)
+void FlashDrawFill(int side,datetime time,double price,string label)
 {
-   if(!OBRVisualDataEnabled()) return;
-   string id=OBRVisualPrefix()+label+"_"+IntegerToString((long)time);
+   if(!FlashVisualDataEnabled()) return;
+   string id=FlashVisualPrefix()+label+"_"+IntegerToString((long)time);
    ObjectCreate(gtVisualChart,id,side==1 ? OBJ_ARROW_BUY : OBJ_ARROW_SELL,0,time,price);
-   ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,OBRDisplayName+" | "+label+" "+TimeToString(time,TIME_DATE|TIME_SECONDS));
+   ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,FlashDisplayName+" | "+label+" "+TimeToString(time,TIME_DATE|TIME_SECONDS));
    ObjectSetInteger(gtVisualChart,id,OBJPROP_COLOR,clrWhite);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_BACK,true);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_TIMEFRAMES,OBJ_ALL_PERIODS);
 }
-void OBRLine(string key,double price,color ink,ENUM_LINE_STYLE style=STYLE_SOLID,datetime left=0,datetime right=0)
+void FlashLine(string key,double price,color ink,ENUM_LINE_STYLE style=STYLE_SOLID,datetime left=0,datetime right=0)
 {
-   if(!OBRVisualDataEnabled())return;
-   string id=OBRVisualPrefix()+key;
+   if(!FlashVisualDataEnabled())return;
+   string id=FlashVisualPrefix()+key;
    if(left==0)
    {
-      left=OBRSessionTime(day);
+      left=FlashSessionTime(day);
       if(StringFind(key,"Opening range")==0) left+=510*60;
       else if(StringFind(key,"Overnight")==0 || StringFind(key,"Bias")==0)
          left-=(OvernightStart==23 ? 3600 : 0);
@@ -348,7 +348,7 @@ void OBRLine(string key,double price,color ink,ENUM_LINE_STYLE style=STYLE_SOLID
          left=ownedEntryTime>0 ? ownedEntryTime : (datetime)PositionGetInteger(POSITION_TIME);
       else if(StringFind(key,"Last ")==0) left=gtLastBracketTime;
    }
-   if(right==0) right=OBRSessionTime(day)+OBRSessionCutoff(OBRSessionTime(day),(int)Model)*60;
+   if(right==0) right=FlashSessionTime(day)+FlashSessionCutoff(FlashSessionTime(day),(int)Model)*60;
    if(left<=0 || right<=left || price<=0) {ObjectDelete(gtVisualChart,id);return;}
    if(ObjectFind(gtVisualChart,id)>=0 && ObjectGetInteger(gtVisualChart,id,OBJPROP_TYPE)!=OBJ_TREND)
       ObjectDelete(gtVisualChart,id);
@@ -360,14 +360,14 @@ void OBRLine(string key,double price,color ink,ENUM_LINE_STYLE style=STYLE_SOLID
    ObjectSetInteger(gtVisualChart,id,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_TIMEFRAMES,OBJ_ALL_PERIODS);
    ObjectSetString(gtVisualChart,id,OBJPROP_TEXT,key);
-   ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,OBRDisplayName+" | "+key+" | "+DoubleToString(price,_Digits)
+   ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,FlashDisplayName+" | "+key+" | "+DoubleToString(price,_Digits)
       +" | "+TimeToString(left,TIME_DATE|TIME_MINUTES)+" to "+TimeToString(right,TIME_MINUTES)+" (broker time)");
 }
 
-void OBRHistoryLine(string key,datetime left,double a,datetime right,double b,color ink)
+void FlashHistoryLine(string key,datetime left,double a,datetime right,double b,color ink)
 {
-   if(!OBRVisualDataEnabled() || right<=left || a<=0 || b<=0)return;
-   string id=OBRVisualPrefix()+"HISTORY_"+key;
+   if(!FlashVisualDataEnabled() || right<=left || a<=0 || b<=0)return;
+   string id=FlashVisualPrefix()+"HISTORY_"+key;
    if(ObjectFind(gtVisualChart,id)<0)ObjectCreate(gtVisualChart,id,OBJ_TREND,0,left,a,right,b);
    ObjectMove(gtVisualChart,id,0,left,a);ObjectMove(gtVisualChart,id,1,right,b);
    ObjectSetInteger(gtVisualChart,id,OBJPROP_COLOR,ink);ObjectSetInteger(gtVisualChart,id,OBJPROP_WIDTH,1);
@@ -376,30 +376,30 @@ void OBRHistoryLine(string key,datetime left,double a,datetime right,double b,co
    ObjectSetInteger(gtVisualChart,id,OBJPROP_RAY_RIGHT,false);ObjectSetInteger(gtVisualChart,id,OBJPROP_TIMEFRAMES,OBJ_ALL_PERIODS);
    ObjectSetString(gtVisualChart,id,OBJPROP_TOOLTIP,"Source-bar session history | "+key);
 }
-void OBRHistoricalSessions(datetime now)
+void FlashHistoricalSessions(datetime now)
 {
-   if(!OBRVisualDataEnabled() || MQLInfoInteger(MQL_TESTER))return;
-   datetime today=OBRVisualDay(now);static datetime retry=0;
-   if(OBRHistoryRendered==today || now<retry)return;
+   if(!FlashVisualDataEnabled() || MQLInfoInteger(MQL_TESTER))return;
+   datetime today=FlashVisualDay(now);static datetime retry=0;
+   if(FlashHistoryRendered==today || now<retry)return;
    retry=now+60;
    MqlRates b[];ArraySetAsSeries(b,false);
    int count=CopyRates(_Symbol,PERIOD_M1,now-14*86400,now-60,b);
    if(count<=0 || !SeriesInfoInteger(_Symbol,PERIOD_M1,SERIES_SYNCHRONIZED))return;
    datetime dates[3];int found=0;datetime last=0;
    for(int i=count-1;i>=0 && found<3;i--){
-      datetime key=OBRVisualDay(b[i].time);
-      datetime ny=OBRNewYork(OBRSessionTime(key));MqlDateTime d;TimeToStruct(ny,d);
+      datetime key=FlashVisualDay(b[i].time);
+      datetime ny=FlashNewYork(FlashSessionTime(key));MqlDateTime d;TimeToStruct(ny,d);
       if(d.day_of_week==0 || d.day_of_week==6)continue;
       if(key==last)continue;last=key;dates[found++]=key;
    }
    if(found==0)return;
    bool complete=found==3;
-   OBRHistoryFloor=OBRSessionTime(dates[found-1]);
-   ObjectsDeleteAll(gtVisualChart,OBRVisualPrefix()+"HISTORY_");
+   FlashHistoryFloor=FlashSessionTime(dates[found-1]);
+   ObjectsDeleteAll(gtVisualChart,FlashVisualPrefix()+"HISTORY_");
    for(int n=found-1;n>=0;n--){
-      datetime sd=dates[n],anchor=OBRSessionTime(sd);
+      datetime sd=dates[n],anchor=FlashSessionTime(sd);
       if(sd==today)continue;
-      datetime right=anchor+OBRSessionCutoff(anchor,(int)Model)*60;
+      datetime right=anchor+FlashSessionCutoff(anchor,(int)Model)*60;
       string tag=IntegerToString((long)sd)+"_";
       double pv=0,vol=0,prior=0,hi=-DBL_MAX,lo=DBL_MAX,op=0,nh=-DBL_MAX,nl=DBL_MAX;
       datetime priorTime=0,segment=0,segmentLeft=0;double segmentValue=0;int opened=0;
@@ -412,73 +412,73 @@ void OBRHistoricalSessions(datetime now)
          if(t<anchor+(start+openingLength)*60){if(t==anchor+start*60)op=b[i].open;opened++;hi=MathMax(hi,b[i].high);lo=MathMin(lo,b[i].low);}
          double q=(double)(b[i].real_volume>0?b[i].real_volume:b[i].tick_volume);
          pv+=(b[i].high+b[i].low+b[i].close)/3*q;vol+=q;double value=vol>0?pv/vol:0;
-         // OBR has no session VWAP.
+         // Flash has no session VWAP.
          priorTime=t;prior=value;
       }
       if(nh>nl){
-         OBRHistoryLine(tag+"Overnight high",anchor-3600,nh,right,nh,clrDeepSkyBlue);
-         OBRHistoryLine(tag+"Overnight low",anchor-3600,nl,right,nl,clrDeepSkyBlue);
-         OBRHistoryLine(tag+"Bias upper third",anchor-3600,nl+2*(nh-nl)/3,right,nl+2*(nh-nl)/3,clrSlateGray);
-         OBRHistoryLine(tag+"Bias lower third",anchor-3600,nl+(nh-nl)/3,right,nl+(nh-nl)/3,clrSlateGray);
+         FlashHistoryLine(tag+"Overnight high",anchor-3600,nh,right,nh,clrDeepSkyBlue);
+         FlashHistoryLine(tag+"Overnight low",anchor-3600,nl,right,nl,clrDeepSkyBlue);
+         FlashHistoryLine(tag+"Bias upper third",anchor-3600,nl+2*(nh-nl)/3,right,nl+2*(nh-nl)/3,clrSlateGray);
+         FlashHistoryLine(tag+"Bias lower third",anchor-3600,nl+(nh-nl)/3,right,nl+(nh-nl)/3,clrSlateGray);
       }
       if(opened!=openingLength || op<=0)complete=false;
-      if(opened==openingLength && op>0 && nh>nl && OBRBias(op,nl,nh)!=0){
-         OBRHistoryLine(tag+"Opening range high",anchor+510*60,hi,right,hi,clrOrange);
-         OBRHistoryLine(tag+"Opening range low",anchor+510*60,lo,right,lo,clrOrange);
+      if(opened==openingLength && op>0 && nh>nl && FlashBias(op,nl,nh)!=0){
+         FlashHistoryLine(tag+"Opening range high",anchor+510*60,hi,right,hi,clrOrange);
+         FlashHistoryLine(tag+"Opening range low",anchor+510*60,lo,right,lo,clrOrange);
       }
    }
-   if(complete)OBRHistoryRendered=today;
+   if(complete)FlashHistoryRendered=today;
    obrBrokerVisualDirty=true;
 }
-void OBRDraw()
+void FlashDraw()
 {
-   if(!OBRVisualEnabled())return;
-   string fault=OBRVisualFault();
-   OBRVisualSuspend(fault!="");
+   if(!FlashVisualEnabled())return;
+   string fault=FlashVisualFault();
+   FlashVisualSuspend(fault!="");
    if(fault!="")
    {
       datetime now=MQLInfoInteger(MQL_TESTER)?TimeCurrent():TimeTradeServer();
-      OBRPanelRows(now,fault,0,0);
+      FlashPanelRows(now,fault,0,0);
       ChartRedraw(gtVisualChart);return;
    }
-   OBRHistoricalSessions(TimeCurrent());
-   if(!OBRVisualEnabled()) return;
-   string p=OBRVisualPrefix();
-   if(dayValid && day==OBRVisualDay(TimeCurrent()))
+   FlashHistoricalSessions(TimeCurrent());
+   if(!FlashVisualEnabled()) return;
+   string p=FlashVisualPrefix();
+   if(dayValid && day==FlashVisualDay(TimeCurrent()))
    {
       if(rangeReady && bias!=0)
       {
-         OBRLine("Opening range high",orHigh,clrOrange,STYLE_DOT);
-         OBRLine("Opening range low",orLow,clrOrange,STYLE_DOT);
+         FlashLine("Opening range high",orHigh,clrOrange,STYLE_DOT);
+         FlashLine("Opening range low",orLow,clrOrange,STYLE_DOT);
       }
       else
       {
          ObjectDelete(gtVisualChart,p+"Opening range high");
          ObjectDelete(gtVisualChart,p+"Opening range low");
       }
-      OBRLine("Overnight high",overnightHigh,clrDeepSkyBlue,STYLE_DOT);
-      OBRLine("Overnight low",overnightLow,clrDeepSkyBlue,STYLE_DOT);
-      OBRLine("Bias upper third",overnightLow+2*(overnightHigh-overnightLow)/3,clrSlateGray,STYLE_DOT);
-      OBRLine("Bias lower third",overnightLow+(overnightHigh-overnightLow)/3,clrSlateGray,STYLE_DOT);
+      FlashLine("Overnight high",overnightHigh,clrDeepSkyBlue,STYLE_DOT);
+      FlashLine("Overnight low",overnightLow,clrDeepSkyBlue,STYLE_DOT);
+      FlashLine("Bias upper third",overnightLow+2*(overnightHigh-overnightLow)/3,clrSlateGray,STYLE_DOT);
+      FlashLine("Bias lower third",overnightLow+(overnightHigh-overnightLow)/3,clrSlateGray,STYLE_DOT);
    }
    string state=virtualActive ? "Synthetic first trade: waiting for TP / SL" : "Waiting for a fresh closed-bar signal";
    if(dayValid && bias==0) state="Neutral opening: no trade";
-   if(virtualActive) {OBRLine("Synthetic SL",virtualStop,clrTomato,STYLE_DASH);OBRLine("Synthetic TP",virtualTarget,clrLimeGreen,STYLE_DASH);}
+   if(virtualActive) {FlashLine("Synthetic SL",virtualStop,clrTomato,STYLE_DASH);FlashLine("Synthetic TP",virtualTarget,clrLimeGreen,STYLE_DASH);}
    else {ObjectDelete(gtVisualChart,p+"Synthetic SL");ObjectDelete(gtVisualChart,p+"Synthetic TP");}
    if(OwnPosition())
    {
       state="Broker position protected";
-      OBRRememberBracket(PositionGetDouble(POSITION_PRICE_OPEN),PositionGetDouble(POSITION_SL),PositionGetDouble(POSITION_TP));
-      OBRLine("Entry",PositionGetDouble(POSITION_PRICE_OPEN),clrWhite,STYLE_DOT);
-      OBRLine("Stop",PositionGetDouble(POSITION_SL),clrTomato);
-      OBRLine("Target",PositionGetDouble(POSITION_TP),clrLimeGreen);
+      FlashRememberBracket(PositionGetDouble(POSITION_PRICE_OPEN),PositionGetDouble(POSITION_SL),PositionGetDouble(POSITION_TP));
+      FlashLine("Entry",PositionGetDouble(POSITION_PRICE_OPEN),clrWhite,STYLE_DOT);
+      FlashLine("Stop",PositionGetDouble(POSITION_SL),clrTomato);
+      FlashLine("Target",PositionGetDouble(POSITION_TP),clrLimeGreen);
    }
    else {ObjectDelete(gtVisualChart,p+"Entry");ObjectDelete(gtVisualChart,p+"Stop");ObjectDelete(gtVisualChart,p+"Target");}
    if(!OwnPosition() && gtLastEntry>0)
    {
-      OBRLine("Last entry (reference)",gtLastEntry,clrWhite,STYLE_DOT);
-      OBRLine("Last stop (reference)",gtLastStop,clrTomato,STYLE_DASH);
-      OBRLine("Last target (reference)",gtLastTarget,clrLimeGreen,STYLE_DASH);
+      FlashLine("Last entry (reference)",gtLastEntry,clrWhite,STYLE_DOT);
+      FlashLine("Last stop (reference)",gtLastStop,clrTomato,STYLE_DASH);
+      FlashLine("Last target (reference)",gtLastTarget,clrLimeGreen,STYLE_DASH);
    }
    else
    {
@@ -488,7 +488,7 @@ void OBRDraw()
    // Match the pane's current M15 value; entry confirmation still uses closed bars.
    if(CopyBuffer(adxHandle,0,0,1,a)==1) adx=a[0];
    if(!dayValid) state="Waiting for session history / indicators";
-   if(day!=OBRVisualDay(TimeCurrent()) || (!dayValid && OBRMinute(TimeCurrent())<510)) state="Session forming | waiting for completed source data";
+   if(day!=FlashVisualDay(TimeCurrent()) || (!dayValid && FlashMinute(TimeCurrent())<510)) state="Session forming | waiting for completed source data";
    if(!MQLInfoInteger(MQL_TESTER) && !runtimeHistoryReady) state="Loading history | new entries blocked | protection active";
    if(!EnableTrading) state="New trades disabled | existing trades remain protected";
    datetime clock=MQLInfoInteger(MQL_TESTER) ? TimeCurrent() : TimeTradeServer();
@@ -497,29 +497,29 @@ void OBRDraw()
    if(runtimeCloseAttention) state="Close unconfirmed | no duplicate request";
    if(runtimeCloseRejected) state="Close rejected | retry paused";
    double nub=0;
-   OBRPaintBrokerTrades(clock);
-   OBRPanelRows(clock,state,adx,nub);
+   FlashPaintBrokerTrades(clock);
+   FlashPanelRows(clock,state,adx,nub);
    static datetime fittedBar=0;
    static double fittedStop=0,fittedTarget=0;
    datetime currentBar=iTime(_Symbol,sourceTF,0);
    double fitStop=virtualActive ? virtualStop : gtLastStop,fitTarget=virtualActive ? virtualTarget : gtLastTarget;
    if(currentBar>0 && (currentBar!=fittedBar || fitStop!=fittedStop || fitTarget!=fittedTarget))
    {
-      OBRVisualFit();fittedBar=currentBar;fittedStop=fitStop;fittedTarget=fitTarget;
+      FlashVisualFit();fittedBar=currentBar;fittedStop=fitStop;fittedTarget=fitTarget;
    }
    ChartRedraw(gtVisualChart);
 }
-void OBRRefreshLiveVisuals(datetime now)
+void FlashRefreshLiveVisuals(datetime now)
 {
-   if(MQLInfoInteger(MQL_TESTER) || !OBRVisualEnabled() || !OBRRuntimeHistoryReady()) return;
-   datetime visualDay=OBRVisualDay(now);
+   if(MQLInfoInteger(MQL_TESTER) || !FlashVisualEnabled() || !FlashRuntimeHistoryReady()) return;
+   datetime visualDay=FlashVisualDay(now);
    if(dayValid && day==visualDay && rangeReady) return;
    static datetime refreshed=0,previousDay=0;
    datetime minute=(datetime)((long)now/60*60);
    if(minute==refreshed) return;
-   datetime anchor=OBRSessionTime(visualDay);
+   datetime anchor=FlashSessionTime(visualDay);
    if(minute<=anchor-3600) return; // No completed M1 bar in this session yet.
-   datetime right=anchor+OBRSessionCutoff(anchor,(int)Model)*60;
+   datetime right=anchor+FlashSessionCutoff(anchor,(int)Model)*60;
    // Date-keyed session history and broker executions survive session rollover.
    MqlRates bars[];ArraySetAsSeries(bars,false);
    if(!M1HistoryAvailable(anchor-3600)) return;
@@ -539,30 +539,30 @@ void OBRRefreshLiveVisuals(datetime now)
    }
    if(nightHigh>nightLow)
    {
-      OBRLine("Overnight high",nightHigh,clrDeepSkyBlue,STYLE_DOT,anchor-3600,right);
-      OBRLine("Overnight low",nightLow,clrDeepSkyBlue,STYLE_DOT,anchor-3600,right);
-      OBRLine("Bias upper third",nightLow+2*(nightHigh-nightLow)/3,clrSlateGray,STYLE_DOT,anchor-3600,right);
-      OBRLine("Bias lower third",nightLow+(nightHigh-nightLow)/3,clrSlateGray,STYLE_DOT,anchor-3600,right);
+      FlashLine("Overnight high",nightHigh,clrDeepSkyBlue,STYLE_DOT,anchor-3600,right);
+      FlashLine("Overnight low",nightLow,clrDeepSkyBlue,STYLE_DOT,anchor-3600,right);
+      FlashLine("Bias upper third",nightLow+2*(nightHigh-nightLow)/3,clrSlateGray,STYLE_DOT,anchor-3600,right);
+      FlashLine("Bias lower third",nightLow+(nightHigh-nightLow)/3,clrSlateGray,STYLE_DOT,anchor-3600,right);
    }
    hasBiasOpen=minute>=opening && OpeningPrice(opening,15,biasOpen);
    bool eligibleBias=hasBiasOpen
-      && nightHigh>nightLow && OBRBias(biasOpen,nightLow,nightHigh)!=0;
+      && nightHigh>nightLow && FlashBias(biasOpen,nightLow,nightHigh)!=0;
    if(eligibleBias && openingHigh>openingLow)
    {
-      OBRLine("Opening range high",openingHigh,clrOrange,STYLE_DOT,opening,right);
-      OBRLine("Opening range low",openingLow,clrOrange,STYLE_DOT,opening,right);
+      FlashLine("Opening range high",openingHigh,clrOrange,STYLE_DOT,opening,right);
+      FlashLine("Opening range low",openingLow,clrOrange,STYLE_DOT,opening,right);
    }
    else
    {
-      ObjectDelete(gtVisualChart,OBRVisualPrefix()+"Opening range high");
-      ObjectDelete(gtVisualChart,OBRVisualPrefix()+"Opening range low");
+      ObjectDelete(gtVisualChart,FlashVisualPrefix()+"Opening range high");
+      ObjectDelete(gtVisualChart,FlashVisualPrefix()+"Opening range low");
    }
    // Display projection never changes trading day, bias, attempts, readiness, or indicator accumulators.
    static bool reported=false;
    if(!reported)
    {
       int levels=0,curve=0;
-      string prefix=OBRVisualPrefix();
+      string prefix=FlashVisualPrefix();
       for(int index=ObjectsTotal(gtVisualChart,0,-1)-1;index>=0;index--)
       {
          string name=ObjectName(gtVisualChart,index,0,-1);
@@ -571,11 +571,11 @@ void OBRRefreshLiveVisuals(datetime now)
       }
       if(levels>0 || curve>0)
       {
-         PrintFormat("OBR_LIVE_DISPLAY_READY levels=%d curveSegments=%d viewed=%s source=M1 session=%s",levels,curve,EnumToString((ENUM_TIMEFRAMES)Period()),TimeToString(visualDay,TIME_DATE));
+         PrintFormat("FLASH_LIVE_DISPLAY_READY levels=%d curveSegments=%d viewed=%s source=M1 session=%s",levels,curve,EnumToString((ENUM_TIMEFRAMES)Period()),TimeToString(visualDay,TIME_DATE));
          reported=true;
       }
    }
-   OBRVisualFit();
+   FlashVisualFit();
 }
 
 #endif

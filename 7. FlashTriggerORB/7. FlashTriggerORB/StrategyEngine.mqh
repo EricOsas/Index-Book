@@ -3,8 +3,8 @@
 #property version "1.00"
 #property description "Flash Trigger ORB. M15 14:30 UTC target candle. Long only. M1 HIGH trail."
 #include <Trade/Trade.mqh>
-#ifndef OBR_STRATEGY_CORE
-#define OBR_STRATEGY_CORE
+#ifndef FLASH_STRATEGY_CORE
+#define FLASH_STRATEGY_CORE
 // Clock: live server/GMT detection; tester weekly-open anchor.
 // No broker whitelist or fixed tester fallback.
 const int CLOCK_UNKNOWN=100000;
@@ -13,7 +13,7 @@ bool clockReady=false;
 datetime clockObserved=0;
 datetime clockWeeks[];
 int clockWeekOffsets[];
-int OBRWeekendOffset(datetime previous,datetime opening)
+int FlashWeekendOffset(datetime previous,datetime opening)
 {
    int raw=(int)((long)opening%86400)-18*3600;
    int offset=(int)MathRound((double)raw/900.0)*900;
@@ -27,7 +27,7 @@ int OBRWeekendOffset(datetime previous,datetime opening)
    }
    return CLOCK_UNKNOWN;
 }
-int OBRWeekAnchorOffset(datetime stamp)
+int FlashWeekAnchorOffset(datetime stamp)
 {
    MqlDateTime d;TimeToStruct(stamp,d);d.hour=0;d.min=0;d.sec=0;
    datetime week=StructToTime(d)-d.day_of_week*86400;
@@ -42,149 +42,149 @@ int OBRWeekAnchorOffset(datetime stamp)
       datetime last=MathMin(stamp,hours[i].time+3599);
       if(CopyRates(_Symbol,PERIOD_M1,hours[i].time,last,minutes)<=0) continue;
       datetime opening=minutes[0].time;
-      int offset=OBRWeekendOffset(hours[i-1].time,opening);
+      int offset=FlashWeekendOffset(hours[i-1].time,opening);
       if(offset==CLOCK_UNKNOWN) continue;
       if(hours[i].time<week
-         && OBRExpectedBrokerUTC(opening-offset+5*3600)!=OBRExpectedBrokerUTC(stamp-offset+5*3600)) continue;
+         && FlashExpectedBrokerUTC(opening-offset+5*3600)!=FlashExpectedBrokerUTC(stamp-offset+5*3600)) continue;
       int n=ArraySize(clockWeeks);ArrayResize(clockWeeks,n+1);ArrayResize(clockWeekOffsets,n+1);
       clockWeeks[n]=week;clockWeekOffsets[n]=offset;return offset;
    }
    return CLOCK_UNKNOWN;
 }
-int OBRServerNYOffsetSec(datetime stamp)
+int FlashServerNYOffsetSec(datetime stamp)
 {
-   if(MQLInfoInteger(MQL_TESTER)) return OBRWeekAnchorOffset(stamp);
+   if(MQLInfoInteger(MQL_TESTER)) return FlashWeekAnchorOffset(stamp);
    datetime utc=TimeGMT(),server=TimeTradeServer();
    if(server<=0 || utc<=0) return CLOCK_UNKNOWN;
    int raw=(int)(server-utc),offset=(int)MathRound((double)raw/900.0)*900;
    if(MathAbs(raw-offset)>120 || offset< -12*3600 || offset>14*3600) return CLOCK_UNKNOWN;
    if(MathAbs((double)(stamp-server))>7*86400)
-      return OBRWeekAnchorOffset(stamp);
-   return offset-(OBRExpectedBrokerUTC(stamp-offset)-7)*3600;
+      return FlashWeekAnchorOffset(stamp);
+   return offset-(FlashExpectedBrokerUTC(stamp-offset)-7)*3600;
 }
-bool OBRClockRefresh(datetime stamp)
+bool FlashClockRefresh(datetime stamp)
 {
    if(clockReady && stamp>=clockObserved && stamp-clockObserved<60) return true;
-   int offset=OBRServerNYOffsetSec(stamp);
+   int offset=FlashServerNYOffsetSec(stamp);
    bool announce=!clockReady || offset!=clockServerNY;
    clockReady=offset!=CLOCK_UNKNOWN;
    if(!clockReady) return false;
-   if(announce) PrintFormat("OBR_CLOCK_READY serverAheadOfNYMinutes=%d source=%s",offset/60,MQLInfoInteger(MQL_TESTER) ? "weekly opening anchor" : "live server/GMT");
+   if(announce) PrintFormat("FLASH_CLOCK_READY serverAheadOfNYMinutes=%d source=%s",offset/60,MQLInfoInteger(MQL_TESTER) ? "weekly opening anchor" : "live server/GMT");
    clockServerNY=offset;clockObserved=stamp;return true;
 }
-datetime OBRNewYorkAtOffset(datetime server,int offset){return server-offset;}
-datetime OBRSessionAtOffset(datetime centralDay,int minute,int offset){return centralDay+offset+3600+minute*60;}
-datetime OBRNewYork(datetime server)
+datetime FlashNewYorkAtOffset(datetime server,int offset){return server-offset;}
+datetime FlashSessionAtOffset(datetime centralDay,int minute,int offset){return centralDay+offset+3600+minute*60;}
+datetime FlashNewYork(datetime server)
 {
-   int offset=OBRServerNYOffsetSec(server);
-   return offset==CLOCK_UNKNOWN ? 0 : OBRNewYorkAtOffset(server,offset);
+   int offset=FlashServerNYOffsetSec(server);
+   return offset==CLOCK_UNKNOWN ? 0 : FlashNewYorkAtOffset(server,offset);
 }
-datetime OBRNewYorkUTC(datetime utc){return utc+(OBRExpectedBrokerUTC(utc)-7)*3600;}
-datetime OBRCentralUTC(datetime utc){return utc+(OBRExpectedBrokerUTC(utc-3600)-8)*3600;}
-datetime OBRClockUTC(datetime server)
+datetime FlashNewYorkUTC(datetime utc){return utc+(FlashExpectedBrokerUTC(utc)-7)*3600;}
+datetime FlashCentralUTC(datetime utc){return utc+(FlashExpectedBrokerUTC(utc-3600)-8)*3600;}
+datetime FlashClockUTC(datetime server)
 {
    if(!MQLInfoInteger(MQL_TESTER) && MathAbs((double)(server-TimeTradeServer()))<=7*86400)
    {
       int offset=(int)MathRound((double)(TimeTradeServer()-TimeGMT())/900.0)*900;
       return server-offset;
    }
-   datetime ny=OBRNewYork(server);
+   datetime ny=FlashNewYork(server);
    if(ny<=0) return 0;
    datetime utc=ny+5*3600;
-   return ny-(OBRExpectedBrokerUTC(utc)-7)*3600;
+   return ny-(FlashExpectedBrokerUTC(utc)-7)*3600;
 }
-datetime OBRCentral(datetime server){datetime utc=OBRClockUTC(server);return utc>0 ? OBRCentralUTC(utc) : 0;}
-datetime OBRSessionTime(datetime centralDay,int minute=0)
+datetime FlashCentral(datetime server){datetime utc=FlashClockUTC(server);return utc>0 ? FlashCentralUTC(utc) : 0;}
+datetime FlashSessionTime(datetime centralDay,int minute=0)
 {
-   int offset=OBRServerNYOffsetSec(centralDay+minute*60+clockServerNY+3600);
+   int offset=FlashServerNYOffsetSec(centralDay+minute*60+clockServerNY+3600);
    if(offset==CLOCK_UNKNOWN && clockReady && MathAbs((double)(centralDay-TimeCurrent()))<3*86400) offset=clockServerNY;
    if(offset==CLOCK_UNKNOWN) return 0;
-   datetime result=OBRSessionAtOffset(centralDay,minute,offset);
-   int resolved=OBRServerNYOffsetSec(result);
-   return OBRSessionAtOffset(centralDay,minute,resolved==CLOCK_UNKNOWN ? offset : resolved);
+   datetime result=FlashSessionAtOffset(centralDay,minute,offset);
+   int resolved=FlashServerNYOffsetSec(result);
+   return FlashSessionAtOffset(centralDay,minute,resolved==CLOCK_UNKNOWN ? offset : resolved);
 }
-datetime OBRDay(datetime server)
+datetime FlashDay(datetime server)
 {
-   MqlDateTime p; TimeToStruct(OBRCentral(server),p);
+   MqlDateTime p; TimeToStruct(FlashCentral(server),p);
    p.hour=0; p.min=0; p.sec=0;
    return StructToTime(p);
 }
-int OBRMinute(datetime server)
+int FlashMinute(datetime server)
 {
-   MqlDateTime p; TimeToStruct(OBRCentral(server),p);
+   MqlDateTime p; TimeToStruct(FlashCentral(server),p);
    return p.hour*60+p.min;
 }
-bool OBRAllowed(datetime t) {return true;}
-bool OBREligible(int minute,int cutoff) {return minute>=0 && minute<cutoff;}
-datetime OBRCalendarDate(int y,int m,int d)
+bool FlashAllowed(datetime t) {return true;}
+bool FlashEligible(int minute,int cutoff) {return minute>=0 && minute<cutoff;}
+datetime FlashCalendarDate(int y,int m,int d)
 {
    MqlDateTime p={};p.year=y;p.mon=m;p.day=d;return StructToTime(p);
 }
-int OBRCalendarWeekday(datetime t){MqlDateTime p;TimeToStruct(t,p);return p.day_of_week;}
-datetime OBRObserved(datetime t)
+int FlashCalendarWeekday(datetime t){MqlDateTime p;TimeToStruct(t,p);return p.day_of_week;}
+datetime FlashObserved(datetime t)
 {
-   int w=OBRCalendarWeekday(t);return t+(w==6 ? -86400 : w==0 ? 86400 : 0);
+   int w=FlashCalendarWeekday(t);return t+(w==6 ? -86400 : w==0 ? 86400 : 0);
 }
-datetime OBRMonday(int y,int month,int n)
+datetime FlashMonday(int y,int month,int n)
 {
-   datetime t=OBRCalendarDate(y,month,1);
-   return t+((8-OBRCalendarWeekday(t))%7+7*(n-1))*86400;
+   datetime t=FlashCalendarDate(y,month,1);
+   return t+((8-FlashCalendarWeekday(t))%7+7*(n-1))*86400;
 }
-bool OBRFutureSpecialDay(datetime d)
+bool FlashFutureSpecialDay(datetime d)
 {
    MqlDateTime p;TimeToStruct(d,p);int y=p.year;
-   datetime mayEnd=OBRCalendarDate(y,6,1)-86400;
-   datetime memorial=mayEnd-((OBRCalendarWeekday(mayEnd)+6)%7)*86400;
+   datetime mayEnd=FlashCalendarDate(y,6,1)-86400;
+   datetime memorial=mayEnd-((FlashCalendarWeekday(mayEnd)+6)%7)*86400;
    int a=y%19,b=y/100,c=y%100,e=b%4,f=(b+8)/25,g=(b-f+1)/3;
    int h=(19*a+b-b/4-g+15)%30,ii=c/4,k=c%4,l=(32+2*e+2*ii-h-k)%7;
    int mm=(a+11*h+22*l)/451,nn=h+l-7*mm+114;
-   datetime friday=OBRCalendarDate(y,nn/31,nn%31+1)-2*86400;
-   datetime nov=OBRCalendarDate(y,11,1);
-   datetime thanks=nov+((11-OBRCalendarWeekday(nov))%7+21)*86400;
-   return d==OBRObserved(OBRCalendarDate(y,1,1)) || d==OBRMonday(y,1,3)
-      || d==OBRMonday(y,2,3) || d==friday || d==memorial
-      || d==OBRObserved(OBRCalendarDate(y,6,19)) || d==OBRCalendarDate(y,7,3)
-      || d==OBRObserved(OBRCalendarDate(y,7,4)) || d==OBRMonday(y,9,1)
-      || d==thanks || d==thanks+86400 || d==OBRCalendarDate(y,12,24)
-      || d==OBRObserved(OBRCalendarDate(y,12,25)) || d==OBRCalendarDate(y,12,31);
+   datetime friday=FlashCalendarDate(y,nn/31,nn%31+1)-2*86400;
+   datetime nov=FlashCalendarDate(y,11,1);
+   datetime thanks=nov+((11-FlashCalendarWeekday(nov))%7+21)*86400;
+   return d==FlashObserved(FlashCalendarDate(y,1,1)) || d==FlashMonday(y,1,3)
+      || d==FlashMonday(y,2,3) || d==friday || d==memorial
+      || d==FlashObserved(FlashCalendarDate(y,6,19)) || d==FlashCalendarDate(y,7,3)
+      || d==FlashObserved(FlashCalendarDate(y,7,4)) || d==FlashMonday(y,9,1)
+      || d==thanks || d==thanks+86400 || d==FlashCalendarDate(y,12,24)
+      || d==FlashObserved(FlashCalendarDate(y,12,25)) || d==FlashCalendarDate(y,12,31);
 }
-int OBRExpectedBrokerUTC(datetime utc)
+int FlashExpectedBrokerUTC(datetime utc)
 {
    MqlDateTime p;TimeToStruct(utc,p);
-   datetime march=OBRCalendarDate(p.year,3,1),nov=OBRCalendarDate(p.year,11,1);
-   datetime start=march+((7-OBRCalendarWeekday(march))%7+7)*86400+7*3600;
-   datetime finish=nov+(7-OBRCalendarWeekday(nov))%7*86400+6*3600;
+   datetime march=FlashCalendarDate(p.year,3,1),nov=FlashCalendarDate(p.year,11,1);
+   datetime start=march+((7-FlashCalendarWeekday(march))%7+7)*86400+7*3600;
+   datetime finish=nov+(7-FlashCalendarWeekday(nov))%7*86400+6*3600;
    return utc>=start && utc<finish ? 3 : 2;
 }
-bool OBRCalendarSelfTest()
+bool FlashCalendarSelfTest()
 {
-   return OBRNewYorkAtOffset(D'2022.01.24 08:00',7*3600)==D'2022.01.24 01:00'
-      && OBRNewYorkAtOffset(D'2022.01.24 08:00',8*3600)==D'2022.01.24 00:00'
-      && OBRNewYorkAtOffset(D'2022.07.12 08:00',7*3600)==D'2022.07.12 01:00'
-      && OBRNewYorkAtOffset(D'2022.07.12 08:00',8*3600)==D'2022.07.12 00:00'
-      && OBRSessionAtOffset(D'2022.01.24',510,7*3600)==D'2022.01.24 16:30'
-      && OBRSessionAtOffset(D'2022.07.12',600,7*3600)==D'2022.07.12 18:00'
-      && OBRSessionAtOffset(D'2022.07.12',870,7*3600)==D'2022.07.12 22:30'
-      && OBRSessionAtOffset(D'2022.07.12',0,7*3600)==D'2022.07.12 08:00'
-      && OBRFutureSpecialDay(D'2026.04.03') && OBRFutureSpecialDay(D'2027.03.26')
-      && OBRFutureSpecialDay(D'2026.11.26') && OBRFutureSpecialDay(D'2026.11.27')
-      && !OBRFutureSpecialDay(D'2026.11.25')
-      && OBRExpectedBrokerUTC(D'2026.03.08 06:59:59')==2
-      && OBRExpectedBrokerUTC(D'2026.03.08 07:00:00')==3
-      && OBRExpectedBrokerUTC(D'2026.11.01 05:59:59')==3
-      && OBRExpectedBrokerUTC(D'2026.11.01 06:00:00')==2
-      && OBRNewYorkUTC(D'2026.03.08 06:59:59')==D'2026.03.08 01:59:59'
-      && OBRNewYorkUTC(D'2026.03.08 07:00:00')==D'2026.03.08 03:00:00'
-      && OBRCentralUTC(D'2026.03.08 07:59:59')==D'2026.03.08 01:59:59'
-      && OBRCentralUTC(D'2026.03.08 08:00:00')==D'2026.03.08 03:00:00'
-      && OBRNewYorkUTC(D'2026.11.01 06:00:00')==D'2026.11.01 01:00:00'
-      && OBRCentralUTC(D'2026.11.01 07:00:00')==D'2026.11.01 01:00:00'
-      && OBRWeekendOffset(D'2022.07.08 20:00',D'2022.07.10 22:05')==4*3600
-      && OBRWeekendOffset(D'2022.01.22 11:00',D'2022.01.24 13:00')==19*3600;
+   return FlashNewYorkAtOffset(D'2022.01.24 08:00',7*3600)==D'2022.01.24 01:00'
+      && FlashNewYorkAtOffset(D'2022.01.24 08:00',8*3600)==D'2022.01.24 00:00'
+      && FlashNewYorkAtOffset(D'2022.07.12 08:00',7*3600)==D'2022.07.12 01:00'
+      && FlashNewYorkAtOffset(D'2022.07.12 08:00',8*3600)==D'2022.07.12 00:00'
+      && FlashSessionAtOffset(D'2022.01.24',510,7*3600)==D'2022.01.24 16:30'
+      && FlashSessionAtOffset(D'2022.07.12',600,7*3600)==D'2022.07.12 18:00'
+      && FlashSessionAtOffset(D'2022.07.12',870,7*3600)==D'2022.07.12 22:30'
+      && FlashSessionAtOffset(D'2022.07.12',0,7*3600)==D'2022.07.12 08:00'
+      && FlashFutureSpecialDay(D'2026.04.03') && FlashFutureSpecialDay(D'2027.03.26')
+      && FlashFutureSpecialDay(D'2026.11.26') && FlashFutureSpecialDay(D'2026.11.27')
+      && !FlashFutureSpecialDay(D'2026.11.25')
+      && FlashExpectedBrokerUTC(D'2026.03.08 06:59:59')==2
+      && FlashExpectedBrokerUTC(D'2026.03.08 07:00:00')==3
+      && FlashExpectedBrokerUTC(D'2026.11.01 05:59:59')==3
+      && FlashExpectedBrokerUTC(D'2026.11.01 06:00:00')==2
+      && FlashNewYorkUTC(D'2026.03.08 06:59:59')==D'2026.03.08 01:59:59'
+      && FlashNewYorkUTC(D'2026.03.08 07:00:00')==D'2026.03.08 03:00:00'
+      && FlashCentralUTC(D'2026.03.08 07:59:59')==D'2026.03.08 01:59:59'
+      && FlashCentralUTC(D'2026.03.08 08:00:00')==D'2026.03.08 03:00:00'
+      && FlashNewYorkUTC(D'2026.11.01 06:00:00')==D'2026.11.01 01:00:00'
+      && FlashCentralUTC(D'2026.11.01 07:00:00')==D'2026.11.01 01:00:00'
+      && FlashWeekendOffset(D'2022.07.08 20:00',D'2022.07.10 22:05')==4*3600
+      && FlashWeekendOffset(D'2022.01.22 11:00',D'2022.01.24 13:00')==19*3600;
 }
 // Flash has no ET-based model cutoff. Only special days cut off early at 11:55 CT = 715 min.
 // The CFD can hold overnight; there is no 23:59 forced flat in MQL5.
-int OBRSessionCutoff(datetime server,int model)
+int FlashSessionCutoff(datetime server,int model)
 {
    string dates=
       "|2020.01.01|2020.01.20|2020.02.17|2020.04.10|2020.05.25|2020.07.03|2020.09.07|2020.11.26|2020.11.27|2020.12.24|2020.12.25|2020.12.31"
@@ -193,67 +193,67 @@ int OBRSessionCutoff(datetime server,int model)
       "|2023.01.02|2023.01.16|2023.02.20|2023.04.07|2023.05.29|2023.06.19|2023.07.03|2023.07.04|2023.09.04|2023.11.23|2023.11.24|2023.12.24|2023.12.25|2023.12.31"
       "|2024.01.01|2024.01.15|2024.02.19|2024.03.29|2024.05.27|2024.06.19|2024.07.03|2024.07.04|2024.09.02|2024.11.28|2024.11.29|2024.12.24|2024.12.25|2024.12.31"
       "|2025.01.01|2025.01.09|2025.01.20|2025.02.17|2025.04.18|2025.05.26|2025.06.19|2025.07.03|2025.07.04|2025.09.01|2025.11.27|2025.11.28|2025.12.24|2025.12.25|2025.12.31|";
-   if(StringFind(dates,"|"+TimeToString(OBRDay(server),TIME_DATE)+"|")>=0) return 715;
-   if(OBRDay(server)>=D'2026.01.01' && OBRFutureSpecialDay(OBRDay(server))) return 715;
+   if(StringFind(dates,"|"+TimeToString(FlashDay(server),TIME_DATE)+"|")>=0) return 715;
+   if(FlashDay(server)>=D'2026.01.01' && FlashFutureSpecialDay(FlashDay(server))) return 715;
    return 1439; // Flash: no model cutoff â€” hold until early next day if needed (CFD overnight ok)
 }
-bool OBRBracket(int side,double entry,double stop,double target)
+bool FlashBracket(int side,double entry,double stop,double target)
 {
    return side*(entry-stop)>0 && side*(target-entry)>0;
 }
-int OBRTradeCap(int model) {return 1;} // Flash: one attempt per UTC date
-int OBRVirtualExit(double low,double high,double stop,double target)
+int FlashTradeCap(int model) {return 1;} // Flash: one attempt per UTC date
+int FlashVirtualExit(double low,double high,double stop,double target)
 {
    if(low<=stop) return -1;
    if(high>=target) return 1;
    return 0;
 }
-bool OBRCanEnter(int minute,int start,int cutoff,int count,int cap)
+bool FlashCanEnter(int minute,int start,int cutoff,int count,int cap)
 {
-   return OBREligible(minute,cutoff) && count<cap;
+   return FlashEligible(minute,cutoff) && count<cap;
 }
 // Flash: signal eligibility is UTC-date-based (one entry per UTC date), not CT minute.
 // This self-test is intentionally trivially true for Flash â€” the model manages its own gate.
-bool OBRSignalCloseEligible(int closeMinute) {return true;}
-bool OBRSignalTimeSelfTest() {return true;}
+bool FlashSignalCloseEligible(int closeMinute) {return true;}
+bool FlashSignalTimeSelfTest() {return true;}
 // Flash: long only. Signal = completed M15 close strictly above 14:30 UTC target HIGH.
-int OBRSignalSide(int model,int direction,double close,double upper,double lower,double dummy)
+int FlashSignalSide(int model,int direction,double close,double upper,double lower,double dummy)
 {
    if(upper<=0 || lower<=0 || lower>=upper) return 0;
    if(close>upper) return 1; // Long only
    return 0;
 }
 #endif
-#ifndef OBR_STRATEGY_BAR_TRAIL
-#define OBR_STRATEGY_BAR_TRAIL
-bool OBRBarTrailLock(double peakR,double activateR,double distanceR,double stepR,double &lockR)
+#ifndef FLASH_STRATEGY_BAR_TRAIL
+#define FLASH_STRATEGY_BAR_TRAIL
+bool FlashBarTrailLock(double peakR,double activateR,double distanceR,double stepR,double &lockR)
 {
    if(activateR<=0 || distanceR<=0 || stepR<=0 || peakR<activateR) return false;
    lockR=activateR+MathFloor((peakR-activateR)/stepR+1e-9)*stepR-distanceR;
    return true;
 }
-bool OBRBarTrailSelfTest()
+bool FlashBarTrailSelfTest()
 {
    double lock=0;
-   if(OBRBarTrailLock(1.499,1.5,1.5,.5,lock)) return false;
+   if(FlashBarTrailLock(1.499,1.5,1.5,.5,lock)) return false;
    double peaks[]={1.5,1.999,2.0,2.499,2.5,3.0};
    double expected[]={0.0,0.0,.5,.5,1.0,1.5};
    for(int i=0;i<ArraySize(peaks);i++)
-      if(!OBRBarTrailLock(peaks[i],1.5,1.5,.5,lock) || MathAbs(lock-expected[i])>1e-9) return false;
-   return !OBRBarTrailLock(2.0,1.5,1.5,0,lock)
-      && OBRVirtualExit(99,111,100,110)==-1
-      && OBRVirtualExit(100,109,100,110)==-1
-      && OBRVirtualExit(101,110,100,110)==1
-      && OBRVirtualExit(101,109,100,110)==0;
+      if(!FlashBarTrailLock(peaks[i],1.5,1.5,.5,lock) || MathAbs(lock-expected[i])>1e-9) return false;
+   return !FlashBarTrailLock(2.0,1.5,1.5,0,lock)
+      && FlashVirtualExit(99,111,100,110)==-1
+      && FlashVirtualExit(100,109,100,110)==-1
+      && FlashVirtualExit(101,110,100,110)==1
+      && FlashVirtualExit(101,109,100,110)==0;
 }
 #endif
 
-enum OBRModel { VaultBreak=0, VWAPPullback=1, OvernightBiasRangeBreakout=2 };
-enum OBRGeometry { SourceGeometry=0, ATRGeometry=1 };
-enum OBRManagement { FixedBracket=0, VWAPClose=1, CostCoveredBE=2, ATRTrail=3, M1RStep=4 };
-const OBRModel Model=(OBRModel)2;
-#ifndef OBR_STRATEGY_PRODUCTION_INPUTS
-#define OBR_STRATEGY_PRODUCTION_INPUTS
+enum FlashModel { VaultBreak=0, VWAPPullback=1, FlashTriggerORB=2 };
+const FlashModel Model=FlashTriggerORB;
+enum FlashGeometry { SourceGeometry=0, ATRGeometry=1 };
+enum FlashManagement { FixedBracket=0, VWAPClose=1, CostCoveredBE=2, ATRTrail=3, M1RStep=4 };
+#ifndef FLASH_STRATEGY_PRODUCTION_INPUTS
+#define FLASH_STRATEGY_PRODUCTION_INPUTS
 
 input group "==========  1 - Trading  =========="
 input bool   EnableTrading              = true;   // Enable new trades (open trades stay protected when off)
@@ -285,10 +285,10 @@ const ulong  MagicNumber                = 91008071; // Fixed model identity; pre
 const int    FlashTrailActivatePoints   = 70;        // Activate M1-high trail after +70 index points from fill
 const int    FlashTrailDistancePoints   = 25;        // Trail stop = best completed M1 high - 25 points
 const double FlashTargetR               = 3.0;       // TP = signal close + 3 * (signal close - target low)
-const int    OBRMaxAttempts             = 1;         // One attempt per UTC date; no same-side retry
-const OBRManagement Management          = M1RStep;
+const int    FlashMaxAttempts             = 1;         // One attempt per UTC date; no same-side retry
+const FlashManagement Management          = M1RStep;
 const double BreakEvenR                 = 0.0;       // Flash uses absolute point trail, not R-based BE
-const string OBRDisplayName             = "Flash Trigger ORB";
+const string FlashDisplayName             = "Flash Trigger ORB";
 
 // Private adapter names matching execution engine expectations.
 const double RiskCash             = RiskMoney;
@@ -296,7 +296,7 @@ const double CommissionRTPerLot   = CommissionPerLot;
 const double SlipPrice            = SlippagePoints*_Point;
 const ulong  Magic                = MagicNumber;
 const bool   DetailedLog          = WriteTradeLog;
-const OBRGeometry Geometry        = SourceGeometry;
+const FlashGeometry Geometry        = SourceGeometry;
 // Trail R-step parameters â€” unused by Flash's absolute-point trail but must satisfy engine checks.
 const double BarTrailActivateR    = 1.5;
 const double BarTrailDistanceR    = 1.5;
@@ -306,7 +306,7 @@ string RunId = "";
 #endif
 
 // ---- Compatibility stubs for ChartVisuals.mqh and ExecutionRuntime.mqh ----
-// These OBRB globals are referenced by the shared modules; Flash doesn't use them but declares stubs.
+// These Flash globals are referenced by the shared modules; Flash doesn't use them but declares stubs.
 double orHigh=0,orLow=0,overnightHigh=0,overnightLow=0;
 int    bias=0;
 const int    ADXPeriod=15;         // Stub: no ADX in Flash
@@ -315,7 +315,7 @@ const int    VaultAttemptCap=3;    // Stub: required by ExecutionRuntime recover
 const bool   SyntheticFirst=false; // Stub: required by ExecutionRuntime
 const double TargetR=3.0;          // Stub: required by ExecutionRuntime export label
 int    adxHandle=INVALID_HANDLE;   // Stub: ExecutionRuntime line 493 references this
-bool OBRSessionATRMean(datetime sessionDay,double &mean){mean=1.0;return true;} // Stub: always ready
+bool FlashSessionATRMean(datetime sessionDay,double &mean){mean=1.0;return true;} // Stub: always ready
 // Flash has no retry fields in the class body â€” declare stubs for ExecutionRuntime restore
 int    firstSide=0;
 bool   retryArmed=false;
@@ -326,15 +326,15 @@ bool dayValid=false;
 bool rangeReady=false;
 // barPeakR: ExecutionRuntime state-save/restore references this; Flash uses flashPeakM1High
 double barPeakR=0;
-// OBRBias stub: ChartVisuals calls OBRBias(open,low,high)
-int OBRBias(double open,double low,double high){return 0;}
+// FlashBias stub: ChartVisuals calls FlashBias(open,low,high)
+int FlashBias(double open,double low,double high){return 0;}
 
-const string OBROutputFamily = "FlashTriggerORB";
-const string OBROutputRoot   = OBROutputFamily+"/logs";
-void OBRPrepareOutput()
+const string FlashOutputFamily = "FlashTriggerORB";
+const string FlashOutputRoot   = FlashOutputFamily+"/logs";
+void FlashPrepareOutput()
 {
-   FolderCreate(OBROutputFamily,FILE_COMMON);
-   FolderCreate(OBROutputRoot,FILE_COMMON);
+   FolderCreate(FlashOutputFamily,FILE_COMMON);
+   FolderCreate(FlashOutputRoot,FILE_COMMON);
 }
 
 CTrade trade;
@@ -374,7 +374,7 @@ datetime flashTrailLastBar      = 0;      // Last completed M1 bar server time p
 bool     flashTrailActive       = false;  // Whether the +70pt activation has been reached
 double   flashTrailStop         = 0;      // Current trail stop level (0 = not yet set)
 
-#ifdef OBR_VISUAL_PROBE
+#ifdef FLASH_VISUAL_PROBE
 bool gtPreviewRequested=false;
 ulong gtPreviewRequestedMs=0;
 #endif
@@ -399,24 +399,24 @@ double RoundPrice(double price)
 }
 void CloseOwned(string why)
 {
-   if(!MQLInfoInteger(MQL_TESTER) && !OBRRuntimeAccountContextValid()){OBRDraw();return;}
+   if(!MQLInfoInteger(MQL_TESTER) && !FlashRuntimeAccountContextValid()){FlashDraw();return;}
    if(!MQLInfoInteger(MQL_TESTER) && !TerminalInfoInteger(TERMINAL_CONNECTED)) return;
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ticket=PositionGetTicket(i);
       if(ticket>0 && PositionGetString(POSITION_SYMBOL)==_Symbol && (ulong)PositionGetInteger(POSITION_MAGIC)==Magic)
       {
-         if(!RecoveryCloseBegin(OBRStateKey(),ticket))continue;
+         if(!RecoveryCloseBegin(FlashStateKey(),ticket))continue;
          bool closed=trade.PositionClose(ticket);uint ret=trade.ResultRetcode();
-         RecoveryCloseResult(OBRStateKey(),ret,trade.ResultOrder());
+         RecoveryCloseResult(FlashStateKey(),ret,trade.ResultOrder());
          if(!closed || (ret!=TRADE_RETCODE_DONE && ret!=TRADE_RETCODE_DONE_PARTIAL))
-         { failedOrders++; PrintFormat("OBR_CLOSE_REJECT %s ret=%u",why,trade.ResultRetcode()); }
+         { failedOrders++; PrintFormat("FLASH_CLOSE_REJECT %s ret=%u",why,trade.ResultRetcode()); }
       }
    }
 }
 void Note(string kind,string text)
 {
-   if(kind=="RECOVERY_BLOCK")Print("OBR RECOVERY ATTENTION: ",text);
+   if(kind=="RECOVERY_BLOCK")Print("FLASH RECOVERY ATTENTION: ",text);
    if(DetailedLog && ledger!=INVALID_HANDLE)
    {
       FileWrite(ledger,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),kind,text);
@@ -481,13 +481,16 @@ bool RejectDay(string reason)
 }
 void ResetDay(datetime now)
 {
-   day=OBRDay(now); entries=0;
+   day=FlashDay(now); entries=0;
    dayWaiting=false; dayRejected=false; dataWaitReason="";
    flashTargetReady=false; flashTargetHigh=0; flashTargetLow=0; flashTargetCandleServer=0;
    dayValid=false; rangeReady=false; barPeakR=0;
-   flashPeakM1High=0; flashTrailLastBar=0; flashTrailActive=false; flashTrailStop=0;
-   gtLastEntry=0;gtLastStop=0;gtLastTarget=0;gtLastBracketTime=0;
-   if(OBRVisualEnabled()) ObjectsDeleteAll(0,OBRVisualPrefix());
+   if(!OwnPosition())
+   {
+      flashPeakM1High=0; flashTrailLastBar=0; flashTrailActive=false; flashTrailStop=0;
+      gtLastEntry=0;gtLastStop=0;gtLastTarget=0;gtLastBracketTime=0;
+   }
+   if(FlashVisualEnabled()) ObjectsDeleteAll(0,FlashVisualPrefix());
    virtualActive=false; virtualStart=0; virtualLastBar=0;
    lastSignal=0;
 }
@@ -510,12 +513,12 @@ bool SetRange(datetime now)
    // Determine 14:30 UTC in server time.
    // clockServerNY = server_offset_from_NY. Server time = NY time + clockServerNY.
    // UTC = server_time - (server_offset_from_UTC).
-   // OBRClockUTC(server) gives UTC from server. Inverse: server = UTC + server_offset_from_UTC.
+   // FlashClockUTC(server) gives UTC from server. Inverse: server = UTC + server_offset_from_UTC.
    // server_offset_from_UTC = server - UTC = clockServerNY + (NY_offset_from_UTC)
    // NY is UTC-5(EST) or UTC-4(EDT). Server_UTC_offset = clockServerNY + (UTC_offset_of_NY)
    // Compute today's 14:30 UTC as a server datetime:
    // Step 1: get server time now, derive UTC.
-   datetime utcNow=OBRClockUTC(now);
+   datetime utcNow=FlashClockUTC(now);
    if(utcNow<=0) return false;
    // Step 2: find today's 14:30 UTC
    MqlDateTime ud;TimeToStruct(utcNow,ud);
@@ -548,7 +551,7 @@ bool SetRange(datetime now)
    return true;
 }
 
-double OBRRequestedVolume(bool fixedSize,double lots,double budget,double unitRisk,double step,double minimum,double maximum)
+double FlashRequestedVolume(bool fixedSize,double lots,double budget,double unitRisk,double step,double minimum,double maximum)
 {
    if(unitRisk<=0 || !MathIsValidNumber(unitRisk) || step<=0 || minimum<=0 || maximum<minimum) return 0;
    if(fixedSize)
@@ -560,21 +563,21 @@ double OBRRequestedVolume(bool fixedSize,double lots,double budget,double unitRi
    if(AllowMinimumOneLot && vol<minimum) vol=minimum;
    return vol;
 }
-string OBRSizingLabel()
+string FlashSizingLabel()
 {return UseFixedSize ? "Lots "+DoubleToString(FixedLots,4) : "Risk "+DoubleToString(RiskMoney,2);}
 // Swap-aware cost-covered price. Reads accrued swap from the live broker position
 // and adds it (as an additional one-time cost per lot) to the trail cost floor.
 // Called only when OwnPosition() is true; safe to query POSITION_SWAP directly.
 // The initial trade entry does not block on swap — swap is unknown at entry time.
 // Only the trailing ratchet incorporates swap after it has accrued intraday or overnight.
-bool OBRCostCoveredPriceSwapAware(int side,double entry,double commission,double volume,double &price)
+bool FlashCostCoveredPriceSwapAware(int side,double entry,double commission,double volume,double &price)
 {
    double accruedSwap=OwnPosition() ? PositionGetDouble(POSITION_SWAP) : 0.0;
    // accruedSwap is negative when broker debits (short CFDs, overnight financing).
    // Treat it as an additional cost: if swap < 0, floor must recover it.
    double swapPerLot=volume>0 && accruedSwap<0 ? MathAbs(accruedSwap)/volume : 0.0;
    double totalCommission=commission+swapPerLot;
-   if(!OBRCostCoveredPrice(side,entry,totalCommission,price)) return false;
+   if(!FlashCostCoveredPrice(side,entry,totalCommission,price)) return false;
    if(swapPerLot>0)
       Note("SWAP_FLOOR",StringFormat("accruedSwap=%f swapPerLot=%f newFloor=%f",accruedSwap,swapPerLot,price));
    return true;
@@ -586,10 +589,10 @@ bool Open(int side,double stop,double target,double distance)
    double entry=(side==1 ? q.ask : q.bid);
    if(distance>0) {stop=entry-side*distance;target=entry+side*distance*FlashTargetR;}
    stop=RoundPrice(stop);target=RoundPrice(target);
-   if(!OBRBracket(side,entry,stop,target)) {invalidBrackets++;Note("INVALID_BRACKET",StringFormat("%d %f %f %f",side,entry,stop,target));return false;}
+   if(!FlashBracket(side,entry,stop,target)) {invalidBrackets++;Note("INVALID_BRACKET",StringFormat("%d %f %f %f",side,entry,stop,target));return false;}
    double loss=0;
    if(!OrderCalcProfit(side==1 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,_Symbol,1.0,entry,stop,loss)) return false;
-   double commission=OBRCommissionEstimate();
+   double commission=FlashCommissionEstimate();
    double friction=commission;
    double slipLoss=0;
    if(!OrderCalcProfit(ORDER_TYPE_BUY,_Symbol,1.0,entry,entry-2*SlipPrice,slipLoss)) return false;
@@ -597,7 +600,7 @@ bool Open(int side,double stop,double target,double distance)
    double unitRisk=MathAbs(loss)+friction;
    double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP),minimum=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
    if(unitRisk<=0 || !MathIsValidNumber(unitRisk) || step<=0 || minimum<=0) {Note("RISK_INVALID","Invalid cash risk or volume contract");return false;}
-   double volume=OBRRequestedVolume(UseFixedSize,FixedLots,RiskCash,unitRisk,step,minimum,SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX));
+   double volume=FlashRequestedVolume(UseFixedSize,FixedLots,RiskCash,unitRisk,step,minimum,SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX));
    if(volume<minimum) {Note(UseFixedSize ? "FIXED_LOTS_INVALID" : "RISK_TOO_SMALL",DoubleToString(unitRisk*minimum,2));return false;}
    if(SkipSetupsAboveRiskBudget && unitRisk*volume>RiskBudgetUsd)
    {
@@ -607,14 +610,14 @@ bool Open(int side,double stop,double target,double distance)
    double stops=SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point;
    if(side*(entry-stop)<stops || side*(target-entry)<stops){invalidBrackets++;return false;}
    entryCommissionPerLot=commission;modelCostPerLot=friction;
-   if(!OBRRuntimeEntryAllowed(entry,stop,target,volume,side)) {Note("ENTRY_BLOCK","EA safety, clock, margin or terminal gate");return false;}
-   string comment=MQLInfoInteger(MQL_TESTER) ? OBRDisplayName : "OBR#"+IntegerToString((long)runtimeIntentNonce);
+   if(!FlashRuntimeEntryAllowed(entry,stop,target,volume,side)) {Note("ENTRY_BLOCK","EA safety, clock, margin or terminal gate");return false;}
+   string comment=MQLInfoInteger(MQL_TESTER) ? FlashDisplayName : "FLASH#"+IntegerToString((long)runtimeIntentNonce);
    bool ok=(side==1 ? trade.Buy(volume,_Symbol,0,stop,target,comment) : trade.Sell(volume,_Symbol,0,stop,target,comment));
    uint ret=trade.ResultRetcode();
    if(!ok || (ret!=TRADE_RETCODE_DONE && ret!=TRADE_RETCODE_DONE_PARTIAL))
    {
       failedOrders++;Note("ENTRY_REJECT",IntegerToString((int)ret));
-      if(!MQLInfoInteger(MQL_TESTER)){entries++;runtimeBlocked=true;OBRStateSave();}
+      if(!MQLInfoInteger(MQL_TESTER)){entries++;runtimeBlocked=true;FlashStateSave();}
       return false;
    }
    initialRisk=MathAbs(trade.ResultPrice()-stop);
@@ -625,20 +628,20 @@ bool Open(int side,double stop,double target,double distance)
    flashPeakM1High=0;flashTrailLastBar=0;flashTrailActive=false;flashTrailStop=0;
    runtimeTrailLastBar=0;
    worstRisk=MathMax(worstRisk,unitRisk*volume);
-   OBRRememberBracket(trade.ResultPrice(),stop,target);
-   OBRDrawFill(side,TimeCurrent(),trade.ResultPrice(),"Entry");
-   OBRRuntimeFilled(side,stop,friction);
+   FlashRememberBracket(trade.ResultPrice(),stop,target);
+   FlashDrawFill(side,TimeCurrent(),trade.ResultPrice(),"Entry");
+   FlashRuntimeFilled(side,stop,friction);
    Note("ENTRY",StringFormat("model=Flash side=%d lots=%f fill=%f sl=%f tp=%f modeledCost=%f",side,volume,trade.ResultPrice(),stop,target,modelCost));
    return true;
 }
-// Flash M1 HIGH trail â€” different from OBRB M1 close trail.
+// Flash M1 HIGH trail â€” different from Flash M1 close trail.
 // Activates when best completed M1 high >= entry + FlashTrailActivatePoints*tick.
 // Tightens stop to bestHigh - FlashTrailDistancePoints*tick (rounded, never widens).
 // If last completed M1 CLOSE already at/below new trail â†’ stage CloseOwned.
 void ManageClosedMinute()
 {
    if(runtimeRecoveryHold || runtimeClosePending || !OwnPosition() || initialRisk<=0) return;
-   if(!MQLInfoInteger(MQL_TESTER) && (!OBRRuntimeAccountContextValid() || !TerminalInfoInteger(TERMINAL_CONNECTED))) return;
+   if(!MQLInfoInteger(MQL_TESTER) && (!FlashRuntimeAccountContextValid() || !TerminalInfoInteger(TERMINAL_CONNECTED))) return;
    datetime completed=iTime(_Symbol,PERIOD_M1,1);
    if(completed<=0 || completed<=flashTrailLastBar) return;
    MqlRates b[];ArraySetAsSeries(b,false);
@@ -659,7 +662,7 @@ void ManageClosedMinute()
          flashTrailActive=true;
    }
    runtimeTrailLastBar=flashTrailLastBar; // Keep recovery in sync
-   OBRStateSave();
+   FlashStateSave();
    if(!flashTrailActive) return;
    // Compute desired trail stop: best M1 high - 25 ticks, rounded inward (down for long)
    double desired=NormalizeDouble(MathFloor((flashPeakM1High-FlashTrailDistancePoints)/tick+1e-9)*tick,_Digits);
@@ -667,9 +670,9 @@ void ManageClosedMinute()
    // Swap floor: if accrued swap is negative (cost), ensure trail does not fall below cost-covered+swap.
    // This prevents trailed profits from being eroded by overnight financing charges.
    double coveredFloor=0;
-   double commissionForFloor=MathMax(entryCommissionPerLot,2*OBREntryChargesPerLot((ulong)PositionGetInteger(POSITION_IDENTIFIER)));
+   double commissionForFloor=MathMax(entryCommissionPerLot,2*FlashEntryChargesPerLot((ulong)PositionGetInteger(POSITION_IDENTIFIER)));
    double flashVol=PositionGetDouble(POSITION_VOLUME);
-   if(OBRCostCoveredPriceSwapAware(1,entry,commissionForFloor,flashVol,coveredFloor) && coveredFloor>desired)
+   if(FlashCostCoveredPriceSwapAware(1,entry,commissionForFloor,flashVol,coveredFloor) && coveredFloor>desired)
       desired=coveredFloor;
    // If last completed M1 close is at or below the new trail â†’ close
    MqlRates lastBar[];ArraySetAsSeries(lastBar,false);
@@ -691,77 +694,77 @@ void ManageClosedMinute()
 }
 int OnInit()
 {
-#ifdef OBR_VISUAL_PROBE
+#ifdef FLASH_VISUAL_PROBE
    if(!MQLInfoInteger(MQL_TESTER)) return INIT_FAILED;
 #endif
-#ifdef OBR_LIFECYCLE_PROBE
+#ifdef FLASH_LIFECYCLE_PROBE
    if(!MQLInfoInteger(MQL_TESTER)) return INIT_FAILED;
 #endif
-   if(!OBRBarTrailSelfTest() || !OBRCalendarSelfTest() || !OBRSignalTimeSelfTest()) {Print("FLASH_CALC_SELFTEST_FAILED");return INIT_FAILED;}
+   if(!FlashBarTrailSelfTest() || !FlashCalendarSelfTest() || !FlashSignalTimeSelfTest()) {Print("FLASH_CALC_SELFTEST_FAILED");return INIT_FAILED;}
    Print("FLASH_CALC_SELFTEST_PASS");
-   RunId=OBROutputFamily+(MQLInfoInteger(MQL_TESTER) ? "_test_"+IntegerToString((long)GetTickCount64()) : "_trades");
+   RunId=FlashOutputFamily+(MQLInfoInteger(MQL_TESTER) ? "_test_"+IntegerToString((long)GetTickCount64()) : "_trades");
    if((!UseFixedSize && RiskCash<=0) || (UseFixedSize && FixedLots<=0)) return INIT_PARAMETERS_INCORRECT;
    if(CommissionRTPerLot<0 || SlipPrice<0 || Magic==0) return INIT_PARAMETERS_INCORRECT;
    if(FlashTrailActivatePoints<=0 || FlashTrailDistancePoints<=0 || FlashTargetR<=0) return INIT_PARAMETERS_INCORRECT;
    flashLastEntryUTCDate=0;
-   OBRClockRefresh(TimeCurrent());
+   FlashClockRefresh(TimeCurrent());
    sourceTF=PERIOD_M15;
    TesterHideIndicators(true);
-   if(MQLInfoInteger(MQL_TESTER) && !OBRRuntimeSelfTest()) return INIT_FAILED;
-   if(!OBRRuntimeInit()) return INIT_FAILED;
+   if(MQLInfoInteger(MQL_TESTER) && !FlashRuntimeSelfTest()) return INIT_FAILED;
+   if(!FlashRuntimeInit()) return INIT_FAILED;
    trade.SetExpertMagicNumber(Magic);trade.SetTypeFillingBySymbol(_Symbol);trade.SetDeviationInPoints(30);
-   OBRInitVisual();
+   FlashInitVisual();
    if(DetailedLog)
    {
-      OBRPrepareOutput();
-      string name=OBROutputRoot+"/ledger_"+RunId+".csv";
+      FlashPrepareOutput();
+      string name=FlashOutputRoot+"/ledger_"+RunId+".csv";
       bool append=false;
       if(!MQLInfoInteger(MQL_TESTER))
-      {append=true;name=OBROutputRoot+"/ledger_"+RunId+"_"+IntegerToString(runtimeAccountId)+"_"+IntegerToString((long)Magic)+".csv";}
+      {append=true;name=FlashOutputRoot+"/ledger_"+RunId+"_"+IntegerToString(runtimeAccountId)+"_"+IntegerToString((long)Magic)+".csv";}
       ledger=FileOpen(name,FILE_COMMON|FILE_WRITE|FILE_SHARE_READ|(append ? FILE_READ : 0)|FILE_CSV|FILE_ANSI,',');
       if(ledger==INVALID_HANDLE){Print("FLASH_LOG_BLOCK: requested ledger unavailable");return INIT_FAILED;}
       if(!append || FileSize(ledger)==0) FileWrite(ledger,"server_time","event","detail");
       else FileSeek(ledger,0,SEEK_END);
    }
-   PrintFormat("%s ready | new trades=%s | %s | clock=automatic server/GMT or tester weekly anchor",OBRDisplayName,EnableTrading ? "enabled" : "disabled",OBRSizingLabel());
+   PrintFormat("%s ready | new trades=%s | %s | clock=automatic server/GMT or tester weekly anchor",FlashDisplayName,EnableTrading ? "enabled" : "disabled",FlashSizingLabel());
    PrintFormat("FLASH_SPEC tick=%f tickvalue=%f minlot=%f contract=%f trailActivate=%d trailDist=%d targetR=%f",
       SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE),SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE),
       SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),SymbolInfoDouble(_Symbol,SYMBOL_TRADE_CONTRACT_SIZE),
       FlashTrailActivatePoints,FlashTrailDistancePoints,FlashTargetR);
-   OBRRefreshLiveVisuals(TimeTradeServer());OBRDraw();
+   FlashRefreshLiveVisuals(TimeTradeServer());FlashDraw();
    return INIT_SUCCEEDED;
 }
 void OnTick()
 {
-   if(!MQLInfoInteger(MQL_TESTER) && !OBRRuntimeAccountContextValid()) return;
-#ifdef OBR_LIFECYCLE_PROBE
-   OBRNativeLifecycleProbe();return;
+   if(!MQLInfoInteger(MQL_TESTER) && !FlashRuntimeAccountContextValid()) return;
+#ifdef FLASH_LIFECYCLE_PROBE
+   FlashNativeLifecycleProbe();return;
 #endif
-   OBRDraw();
+   FlashDraw();
    datetime now=TimeCurrent();
-   if(!OBRClockRefresh(now)){OBRDraw();return;}
+   if(!FlashClockRefresh(now)){FlashDraw();return;}
    if(!DateAllowed(now)) {CloseOwned("PHASE_LOCK");return;}
    double adjustedEquity=AccountInfoDouble(ACCOUNT_EQUITY)-totalCost;
    adjustedPeak=MathMax(adjustedPeak,adjustedEquity);adjustedDD=MathMax(adjustedDD,adjustedPeak-adjustedEquity);
-   int minute=OBRMinute(now),cutoff=OBRSessionCutoff(now,(int)Model);
+   int minute=FlashMinute(now),cutoff=FlashSessionCutoff(now,(int)Model);
    // Flash: overdue-day check uses UTC date, not CT day boundary
-   if(OwnPosition() && OBRDay((datetime)PositionGetInteger(POSITION_TIME))<OBRDay(now)-2*86400) {CloseOwned("OVERDUE_DAY");return;}
+   if(OwnPosition() && FlashDay((datetime)PositionGetInteger(POSITION_TIME))<FlashDay(now)-2*86400) {CloseOwned("OVERDUE_DAY");return;}
    if(minute>=cutoff && cutoff<1439)
    {
       // Only close on special early-cutoff days; normally Flash holds indefinitely
       CloseOwned("CUTOFF");return;
    }
-   if(!OBRRuntimeHistoryReady()) return;
+   if(!FlashRuntimeHistoryReady()) return;
    datetime m=iTime(_Symbol,PERIOD_M1,0);
    if(m==lastMinute) return;lastMinute=m;
-#ifdef OBR_VISUAL_PROBE
+#ifdef FLASH_VISUAL_PROBE
    int completed_=0;for(int y=0;y<7;y++) completed_+=yearTrades[y];
    if(completed_>=1)
    {
-      string snapshot="FlashTriggerORBPreview_"+OBROutputFamily+".png";
+      string snapshot="FlashTriggerORBPreview_"+FlashOutputFamily+".png";
       if(!gtPreviewRequested)
       {
-         OBRDraw();OBRVisualFit();
+         FlashDraw();FlashVisualFit();
          ResetLastError();
          gtPreviewRequested=ChartScreenShot(0,snapshot,1280,800,ALIGN_RIGHT);
          gtPreviewRequestedMs=GetTickCount64();
@@ -773,11 +776,11 @@ void OnTick()
    }
 #endif
    ManageClosedMinute();
-   // Day boundary â€” keyed on CT day (OBRDay), same as sample
-   if(OBRDay(now)!=day)
+   // Day boundary â€” keyed on CT day (FlashDay), same as sample
+   if(FlashDay(now)!=day)
    {
       ResetDay(now);
-      OBRStateRestore(now);
+      FlashStateRestore(now);
    }
    dayValid=!dayRejected && !dayWaiting;
    if(!dayValid)
@@ -809,17 +812,17 @@ void OnTick()
    // Signal timestamp guard â€” do not replay
    if(b[0].time<=lastSignal) return;
    lastSignal=b[0].time;
-   OBRStateSave();
+   FlashStateSave();
    if(!MQLInfoInteger(MQL_TESTER) && runtimeBlocked) return;
    // Per-UTC-date entry gate
-   datetime utcNow=OBRClockUTC(now);
+   datetime utcNow=FlashClockUTC(now);
    if(utcNow<=0) return;
    MqlDateTime ud;TimeToStruct(utcNow,ud);ud.hour=0;ud.min=0;ud.sec=0;
    datetime todayUTC=StructToTime(ud);
    if(todayUTC==flashLastEntryUTCDate) return; // Already attempted today (UTC date)
    if(!EnableTrading) return;
-   if(!OBRCanEnter(minute,0,cutoff,entries,OBRMaxAttempts) || OwnPosition() || virtualActive) return;
-   int side=OBRSignalSide(2,0,b[0].close,flashTargetHigh,flashTargetLow,0);
+   if(!FlashCanEnter(minute,0,cutoff,entries,FlashMaxAttempts) || OwnPosition() || virtualActive) return;
+   int side=FlashSignalSide(2,0,b[0].close,flashTargetHigh,flashTargetLow,0);
    if(side==1)
    {
       double sigClose=b[0].close;
@@ -839,8 +842,8 @@ void OnTradeTransaction(const MqlTradeTransaction &tx,const MqlTradeRequest &req
    obrBrokerVisualDirty=true;
    long entry=HistoryDealGetInteger(tx.deal,DEAL_ENTRY);
    if(entry!=DEAL_ENTRY_OUT && entry!=DEAL_ENTRY_OUT_BY) return;
-   datetime t=(datetime)HistoryDealGetInteger(tx.deal,DEAL_TIME);MqlDateTime p;TimeToStruct(OBRDay(t),p);
-   if(ownedEntryTime>0 && OBRDay(t)!=OBRDay(ownedEntryTime))
+   datetime t=(datetime)HistoryDealGetInteger(tx.deal,DEAL_TIME);MqlDateTime p;TimeToStruct(FlashDay(t),p);
+   if(ownedEntryTime>0 && FlashDay(t)!=FlashDay(ownedEntryTime))
    {
       overnightExits++;
       carryDetails+=TimeToString(ownedEntryTime-8*3600,TIME_DATE|TIME_SECONDS)+","+TimeToString(t-8*3600,TIME_DATE|TIME_SECONDS)+"\r\n";
@@ -852,44 +855,44 @@ void OnTradeTransaction(const MqlTradeTransaction &tx,const MqlTradeRequest &req
    ulong pid=(ulong)HistoryDealGetInteger(tx.deal,DEAL_POSITION_ID);
    double exitCharges=HistoryDealGetDouble(tx.deal,DEAL_COMMISSION)+HistoryDealGetDouble(tx.deal,DEAL_FEE);
    double brokerNet=HistoryDealGetDouble(tx.deal,DEAL_PROFIT)+exitCharges+HistoryDealGetDouble(tx.deal,DEAL_SWAP);
-   double entryCharges=OBREntryChargesPerLot(pid)*qty;
+   double entryCharges=FlashEntryChargesPerLot(pid)*qty;
    double slipCost=MathMax(0,modelCostPerLot-entryCommissionPerLot)*qty;
    double extraCommission=MQLInfoInteger(MQL_TESTER) ? MathMax(0,entryCommissionPerLot*qty-entryCharges+exitCharges) : 0;
    double net=brokerNet-entryCharges-slipCost-extraCommission;
    if(MQLInfoInteger(MQL_TESTER)) totalCost-=MathMin(entryCommissionPerLot*qty,MathMax(0,entryCharges-exitCharges));
-   OBRStateSave();
+   FlashStateSave();
    if(y>=0 && y<7){yearProfit[y]+=net;yearTrades[y]++;}
-   int di=(int)((OBRDay(t)-D'2020.01.01')/86400);
+   int di=(int)((FlashDay(t)-D'2020.01.01')/86400);
    if(di>=0 && di<ArraySize(dailyNet)) dailyNet[di]+=net;
    if(net>0)netWins+=net;else netLosses-=net;
-   // Flash has no retry; no OBRArmSameSideRetry call
+   // Flash has no retry; no FlashArmSameSideRetry call
    Note("EXIT",StringFormat("ticket=%I64u price=%f netAdjusted=%f reason=%d",tx.deal,exitPrice,net,exitReason));
-   OBRDrawFill(exitSide,t,exitPrice,"Exit");
+   FlashDrawFill(exitSide,t,exitPrice,"Exit");
 }
 double OnTester()
 {
-#ifdef OBR_LIFECYCLE_PROBE
+#ifdef FLASH_LIFECYCLE_PROBE
    return 0;
 #endif
    double net=TesterStatistics(STAT_PROFIT)-totalCost;
    double pf=netLosses>0 ? netWins/netLosses : 0;
-   OBRPrepareOutput();
-   string path=OBROutputRoot+"/"+RunId+".csv";
+   FlashPrepareOutput();
+   string path=FlashOutputRoot+"/"+RunId+".csv";
    int out=FileOpen(path,FILE_COMMON|FILE_WRITE|FILE_CSV|FILE_ANSI,',');
    if(out==INVALID_HANDLE) return -1000000;
    FileWrite(out,"model","net","pf","equityDD","trades","days","rejectedDays","invalidBrackets","failedOrders","worstRisk");
-   FileWrite(out,OBRDisplayName,net,pf,adjustedDD,TesterStatistics(STAT_TRADES),daysReady,daysRejected,invalidBrackets,failedOrders,worstRisk);
+   FileWrite(out,FlashDisplayName,net,pf,adjustedDD,TesterStatistics(STAT_TRADES),daysReady,daysRejected,invalidBrackets,failedOrders,worstRisk);
    FileClose(out);
-   bool exported=!DetailedLog || OBRExportTrades(path+".trades.csv");
-   PrintFormat("%s TESTER_RESULT net=%.2f PF=%.6f trades=%d export=%s path=%s",OBRDisplayName,net,pf,(int)TesterStatistics(STAT_TRADES),!DetailedLog ? "DISABLED" : exported ? "PASS" : "FAIL",path);
+   bool exported=!DetailedLog || FlashExportTrades(path+".trades.csv");
+   PrintFormat("%s TESTER_RESULT net=%.2f PF=%.6f trades=%d export=%s path=%s",FlashDisplayName,net,pf,(int)TesterStatistics(STAT_TRADES),!DetailedLog ? "DISABLED" : exported ? "PASS" : "FAIL",path);
    return exported && failedOrders==0 && invalidBrackets==0 ? (adjustedDD>0 ? net/adjustedDD : 0) : -1000000;
 }
 void OnDeinit(const int reason)
 {
-   OBRStateSave();EventKillTimer();
+   FlashStateSave();EventKillTimer();
    if(runtimeLockFile!=INVALID_HANDLE) FileClose(runtimeLockFile);
    if(reason!=REASON_CHARTCHANGE || ChartSymbol(0)!=_Symbol || !ShowVisuals)
-      ObjectsDeleteAll(0,OBRVisualPrefix());
+      ObjectsDeleteAll(0,FlashVisualPrefix());
    if(gtPane!=INVALID_HANDLE)
    {
       for(int window=(int)ChartGetInteger(0,CHART_WINDOWS_TOTAL)-1;window>=1;window--) ChartIndicatorDelete(0,window,gtPaneName);
