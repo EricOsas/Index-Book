@@ -1052,7 +1052,8 @@ void OnTradeTransaction(const MqlTradeTransaction &tx,const MqlTradeRequest &req
    int di=(int)((SigmaDay(t)-D'2020.01.01')/86400);
    if(di>=0 && di<ArraySize(dailyNet)) dailyNet[di]+=net;
    if(net>0)netWins+=net;else netLosses-=net;
-   if(entries==1 && exitReason==DEAL_REASON_TP) targetFilled=true;
+   if(entries==1 && exitReason==DEAL_REASON_TP)
+   {targetFilled=true;SigmaStateSave();}
    if(entries==1 && !OwnPosition() && exitReason==DEAL_REASON_SL && !targetFilled)
    {
       SigmaArmSameSideRetry(t,net<0,exitReason);

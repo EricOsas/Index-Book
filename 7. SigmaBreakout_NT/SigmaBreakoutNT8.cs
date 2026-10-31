@@ -3900,6 +3900,7 @@ private static class ProductExposure
 		if (orders.TryGetValue(entryName ?? "", out Order entryOrder) && Settled(entryOrder) && ExecutionsCaughtUp(entryOrder)) entryPending = false;
 		if (exited > entered) { suspended = true; BeginClose("OcoRace"); }
 		DriveClose();
+		if (ownedNet != 0 || entryPending || closing) SaveRecovery();
 		if (entered > 0 && ownedNet == 0 && !entryPending && orders.Values.All(o => Settled(o) && ExecutionsCaughtUp(o))) Complete(NewYork(time));
 	}
 
