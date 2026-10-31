@@ -1,0 +1,45 @@
+{
+  "package": "Index Book Sigma N3/1.7 + Flash Trigger ORB port handoff",
+  "sample_file_sha256": "5172f5f0401f47e0989f8b930cdc8ce17b087af624d1b2a3f5faeb35fa4a1fe8",
+  "strategies": {
+    "sigma": {
+      "sha256": "3a08e610d596f7deddcca371ef541a1e3e6f5df61ad4a18068cb9be9cfa78f96",
+      "lines": 4173,
+      "brace_balance": "PASS",
+      "ending_state": "code",
+      "method_count": 146,
+      "duplicate_signatures": 0,
+      "copied_sample_components": {
+        "ModelDashState": "4d4a1469270493c55cce4f66e7101ca1e94fc3d0e31cd53536025263f6b2c664",
+        "ModelDashboard": "8ff39ae9106fdede351f081ed136579d0af4e447ce7c25e4fef82c26b2ca0c1c",
+        "ProductExposure": "8bf008c368ee19ac1da97368f5c566a65e1073201f492a9be66306267c048e2e",
+        "OvernightExecutionVisual": "5704eb49ab52e04fb8f1ff2bf83375e71ad978583fbbe3bafb1edff4cf477699"
+      },
+      "model_contract": "PASS",
+      "native_compiled": false,
+      "native_compiler_note": "No NinjaTrader/CLR compiler in this handoff environment"
+    },
+    "flash": {
+      "sha256": "118e8b497cec01b1c8211080f069bddae89ac5fa285162ec18ca0baeeaf0fafd",
+      "lines": 4122,
+      "brace_balance": "PASS",
+      "ending_state": "code",
+      "method_count": 144,
+      "duplicate_signatures": 0,
+      "copied_sample_components": {
+        "ModelDashState": "4d4a1469270493c55cce4f66e7101ca1e94fc3d0e31cd53536025263f6b2c664",
+        "ModelDashboard": "8ff39ae9106fdede351f081ed136579d0af4e447ce7c25e4fef82c26b2ca0c1c",
+        "ProductExposure": "8bf008c368ee19ac1da97368f5c566a65e1073201f492a9be66306267c048e2e",
+        "OvernightExecutionVisual": "5704eb49ab52e04fb8f1ff2bf83375e71ad978583fbbe3bafb1edff4cf477699"
+      },
+      "model_contract": "PASS",
+      "native_compiled": false,
+      "native_compiler_note": "No NinjaTrader/CLR compiler in this handoff environment"
+    }
+  },
+  "limitations": [
+    "Static source validation does not establish NT8 compilation or live readiness.",
+    "Strategy Analyzer, chart visuals, live-sim recovery lifecycle and broker integration remain untested.",
+    "MQL5 EA is not built; only the port guide is included."
+  ]
+}
