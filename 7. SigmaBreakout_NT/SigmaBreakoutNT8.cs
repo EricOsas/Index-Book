@@ -1897,11 +1897,12 @@ private static class ProductExposure
 		}
 		try
 		{
+			bool hasRetryDistanceState = false;
 			using (BinaryReader binaryReader = new BinaryReader(File.OpenRead(recoveryPath)))
 			{
 				string recoveryVersion = binaryReader.ReadString();
 				bool hasRetryState = recoveryVersion == "IndependentNT8.v2" || recoveryVersion == "IndependentNT8.SigmaN3.v3";
-				bool hasRetryDistanceState = recoveryVersion == "IndependentNT8.SigmaN3.v3";
+				hasRetryDistanceState = recoveryVersion == "IndependentNT8.SigmaN3.v3";
 				if ((recoveryVersion != "IndependentNT8.SigmaN3.v2" && recoveryVersion != "IndependentNT8.v2" && !hasRetryDistanceState) || binaryReader.ReadString() != recoveryIdentity)
 				{
 					throw new InvalidDataException("Recovery account, connection, instrument or model mismatch");
