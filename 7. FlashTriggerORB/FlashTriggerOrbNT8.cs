@@ -1,7 +1,7 @@
-// Flash Trigger ORB NT8 — long-only M15 trigger, M1 execution, derived from the user-supplied OBRB NT8 sample.
+// Flash Trigger ORB NT8 — long-only M15 trigger, M1 execution with tick-level trailing.
 //+------------------------------------------------------------------+
 //|                             FlashTriggerOrbNT8.cs    |
-//| Overnight Bias Range Breakout Strategy on Nasdaq                 |
+//| Flash Trigger ORB Strategy on Nasdaq                             |
 //| Developed by Osamwonyi Eric (You_FoundEric)                      |
 //| Copyright 2026-2027, Osamwonyi Eric (@You_FoundEric)             |
 //+------------------------------------------------------------------+
@@ -62,7 +62,7 @@ public class FlashTriggerOrbNT8 : Strategy
 		internal bool Trailing;
 	}
 
-	private static class OvernightExecutionVisual
+	private static class StrategyExecutionVisual
 	{
 		private sealed class PendingChartDraws
 		{
@@ -1117,7 +1117,7 @@ private static class ProductExposure
 	private double flashTargetLow;
 	private bool flashTargetReady;
 	private bool flashTradedToday;
-	private double flashPeakClose;
+	private double flashPeakHigh;
 	private bool flashTrailActive;
 	private double flashSignalClose;
 
@@ -1394,17 +1394,17 @@ private static class ProductExposure
 			double pnlMove = trade.Side * (trade.Exit - trade.Entry);
 			double stop = (closed && pnlMove <= 0) ? trade.Exit : trade.InitialStop;
 			double target = (closed && pnlMove > 0) ? trade.Exit : trade.InitialTarget;
-			OvernightExecutionVisual.DrawExecutionTool(this, trade.Tag, trade.Side > 0, trade.Entry, stop, target, trade.Entry,
+			StrategyExecutionVisual.DrawExecutionTool(this, trade.Tag, trade.Side > 0, trade.Entry, stop, target, trade.Entry,
 				Platform(trade.Entered), Platform(trade.Entered), Platform(right), trade.Trailing, trade.TrailStart, synthetic: false);
 			if (trade.Trailing && trade.TrailStart != DateTime.MinValue)
-				OvernightExecutionVisual.DrawBoundedLine(this, trade.Tag + "_TRAIL", Platform(trade.TrailStart), trade.Stop, Platform(right), trade.Stop, OvernightExecutionVisual.ClrTrailingStop, DashStyleHelper.Dot, 2);
+				StrategyExecutionVisual.DrawBoundedLine(this, trade.Tag + "_TRAIL", Platform(trade.TrailStart), trade.Stop, Platform(right), trade.Stop, StrategyExecutionVisual.ClrTrailingStop, DashStyleHelper.Dot, 2);
 		}
 		else
 		{
-			OvernightExecutionVisual.DrawBoundedLine(this, trade.Tag + "_ENT", Platform(trade.Entered), trade.Entry, Platform(right), trade.Entry, OvernightExecutionVisual.ClrEntryLine, DashStyleHelper.Solid, 2);
+			StrategyExecutionVisual.DrawBoundedLine(this, trade.Tag + "_ENT", Platform(trade.Entered), trade.Entry, Platform(right), trade.Entry, StrategyExecutionVisual.ClrEntryLine, DashStyleHelper.Solid, 2);
 			if (closed && trade.Exit > 0)
 				Draw.Rectangle(this, trade.Tag + "_TRADE", false, Platform(trade.Entered), trade.Entry, Platform(right), trade.Exit, Brushes.Transparent,
-					(trade.Side * (trade.Exit - trade.Entry) >= 0 ? OvernightExecutionVisual.ClrTPBox : OvernightExecutionVisual.ClrSLBox), 25);
+					(trade.Side * (trade.Exit - trade.Entry) >= 0 ? StrategyExecutionVisual.ClrTPBox : StrategyExecutionVisual.ClrSLBox), 25);
 		}
 	}
 
@@ -1508,7 +1508,7 @@ private static class ProductExposure
 			platformZone = Globals.GeneralOptions.TimeZoneInfo;
 			easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
 			nyZone = easternZone;
-			owner = StrategyPrefix() + "_" + InstanceId + "_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+			owner = StrategyPrefix() + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
 			PrepareRecovery();
 			string instrumentName = ExecutionInstrument.MasterInstrument.Name.ToUpperInvariant();
 			if (instrumentName != "NQ" && instrumentName != "MNQ" && instrumentName != "NNQ")
@@ -3276,7 +3276,7 @@ private static class ProductExposure
 		flashTargetLow = 0;
 		flashTargetReady = false;
 		flashTradedToday = false;
-		flashPeakClose = 0;
+		flashPeakHigh = 0;
 		flashTrailActive = false;
 		
 		
@@ -3344,7 +3344,7 @@ private static class ProductExposure
 
 
 	private bool FinitePositive(double x) => x > 0 && !double.IsNaN(x) && !double.IsInfinity(x);
-	private string StrategyPrefix() => Name.Replace(" ", "") + "_" + InstanceId;
+	private string StrategyPrefix() => "Flash" + (string.IsNullOrWhiteSpace(InstanceId) || InstanceId == "default" ? "" : "_" + InstanceId);
 	private string StrategyFolder() => Name.Replace(" ", "");
 	private DateTime EasternToUtc(DateTime eastern) => TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(eastern, DateTimeKind.Unspecified), nyZone);
 	private DateTime UtcToEastern(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), nyZone);
@@ -3591,10 +3591,10 @@ private static class ProductExposure
 	{
 		if (!BrokerReady() || ownedNet <= 0 || entered <= 0 || closing || initialRisk <= 0 || !sourceFresh) return;
 		double entry = entrySum / entered;
-		flashPeakClose = Math.Max(flashPeakClose, bar.Close);
-		if (flashPeakClose < entry + TrailActivationPoints) return;
+		flashPeakHigh = Math.Max(flashPeakHigh, bar.High);
+		if (flashPeakHigh < entry + TrailActivationPoints) return;
 		flashTrailActive = true;
-		double nextStop = Round(flashPeakClose - TrailOffsetPoints);
+		double nextStop = Round(flashPeakHigh - TrailOffsetPoints);
 		double quote = State == State.Realtime ? GetCurrentBid(executionSeries) : bar.Close;
 		if (quote <= nextStop)
 		{
@@ -3846,7 +3846,7 @@ private static class ProductExposure
 		initialRisk = 0;
 		plannedStop = plannedTarget = 0;
 		flashTrailActive = false;
-		flashPeakClose = 0;
+		flashPeakHigh = 0;
 		ReleaseExposure();
 		SaveRecovery();
 	}
@@ -4038,7 +4038,7 @@ private static class ProductExposure
 	private void Level(string tag, DateTime left, DateTime right, double price, System.Windows.Media.Brush brush)
 	{
 		if (!VisualsSuppressed && right > left && price > 0)
-			Draw.Line(this, StrategyPrefix() + "_" + InstanceId + "_" + sessionDay.ToString("yyyyMMdd") + "_" + tag, false, Platform(left), price, Platform(right), price, brush, DashStyleHelper.Dash, 1);
+			Draw.Line(this, StrategyPrefix() + "_" + sessionDay.ToString("yyyyMMdd") + "_" + tag, false, Platform(left), price, Platform(right), price, brush, DashStyleHelper.Dash, 1);
 	}
 
 	private void Levels(DateTime now)
