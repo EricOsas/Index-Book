@@ -222,36 +222,65 @@ double ComputeEMA(const double &prices[], int period, int count)
    return ema;
 }
 
-double ComputeATR(const MqlRates &rates[], int period, ENUM_ATR_METHOD method, int count)
+// rates[] is series-oriented: shift 0 is newest. Calculate ATR in
+// chronological order and stop at the requested completed-bar shift.
+double ComputeATRAtShift(const MqlRates &rates[], int period,
+                         ENUM_ATR_METHOD method, int count, int targetShift)
 {
-   if(count <= period) return 0.0;
-   double tr[];
-   ArrayResize(tr, count);
-   tr[0] = rates[0].high - rates[0].low;
-   for(int i = 1; i < count; i++)
-   {
-      double hl = rates[i].high - rates[i].low;
-      double hc = MathAbs(rates[i].high - rates[i - 1].close);
-      double lc = MathAbs(rates[i].low  - rates[i - 1].close);
-      tr[i] = MathMax(hl, MathMax(hc, lc));
-   }
+   if(count <= period || targetShift < 0 || targetShift >= count ||
+      count - targetShift < period)
+      return 0.0;
 
    if(method == ATR_METHOD_RMA)
    {
-      double sum = 0.0;
-      for(int i = 0; i < period; i++) sum += tr[i];
-      double atr = sum / period;
-      for(int i = period; i < count; i++)
-         atr = (atr * (period - 1) + tr[i]) / period;
-      return atr;
+      double seed = 0.0;
+      int seen = 0;
+      double atr = 0.0;
+
+      // Oldest -> newest, ending at targetShift. This matches the Python
+      // oracle: first ATR is the mean of the first 'period' true ranges.
+      for(int shift = count - 1; shift >= targetShift; shift--)
+      {
+         double tr;
+         if(shift == count - 1)
+            tr = rates[shift].high - rates[shift].low;
+         else
+         {
+            double hl = rates[shift].high - rates[shift].low;
+            double hc = MathAbs(rates[shift].high - rates[shift + 1].close);
+            double lc = MathAbs(rates[shift].low  - rates[shift + 1].close);
+            tr = MathMax(hl, MathMax(hc, lc));
+         }
+
+         if(seen < period)
+         {
+            seed += tr;
+            seen++;
+            if(seen == period) atr = seed / period;
+         }
+         else
+            atr = (atr * (period - 1) + tr) / period;
+      }
+      return (seen == period) ? atr : 0.0;
    }
-   else // SMA
+
+   // SMA ATR at targetShift: the period true ranges ending at that bar.
+   double sum = 0.0;
+   for(int shift = targetShift; shift < targetShift + period; shift++)
    {
-      double sum = 0.0;
-      for(int i = count - period; i < count; i++)
-         sum += tr[i];
-      return sum / period;
+      double tr;
+      if(shift == count - 1)
+         tr = rates[shift].high - rates[shift].low;
+      else
+      {
+         double hl = rates[shift].high - rates[shift].low;
+         double hc = MathAbs(rates[shift].high - rates[shift + 1].close);
+         double lc = MathAbs(rates[shift].low  - rates[shift + 1].close);
+         tr = MathMax(hl, MathMax(hc, lc));
+      }
+      sum += tr;
    }
+   return sum / period;
 }
 
 //+------------------------------------------------------------------+
@@ -534,8 +563,12 @@ void CheckAndExecuteTrendFVG(datetime currentBarOpen)
 {
    MqlRates r15[];
    ArraySetAsSeries(r15, true);
-   int count = MathMax(actTrendEmaSlow + 10, 100);
-   int copied = CopyRates(_Symbol, PERIOD_M15, currentBarOpen, count, r15);
+   // RMA is recursive from the first available bar in the oracle dataset.
+   // Fetch the full available M15 history rather than reseeding on a short
+   // rolling window, otherwise ATR drifts from the Python reference.
+   int count = Bars(_Symbol, PERIOD_M15);
+   if(count <= 0) return;
+   int copied = CopyRates(_Symbol, PERIOD_M15, 0, count, r15);
    if(copied < count) return;
 
    // r15[1] is c3 (just closed), r15[2] is c2, r15[3] is c1
@@ -550,7 +583,8 @@ void CheckAndExecuteTrendFVG(datetime currentBarOpen)
    if(!bullFvg) return;
 
    // Rule c: Displacement (c2 range >= mult * ATR)
-   double atr = ComputeATR(r15, 14, actAtrMethod, copied - 1);
+   int atrShift = (actAtrRef == ATR_REF_C1) ? 3 : 2;
+   double atr = ComputeATRAtShift(r15, 14, actAtrMethod, copied, atrShift);
    if(atr <= 0) return;
    double c2Range = r15[2].high - r15[2].low;
    if(c2Range < actTrendAtrMult * atr) return;
