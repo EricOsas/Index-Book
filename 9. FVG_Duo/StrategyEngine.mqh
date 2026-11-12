@@ -107,15 +107,37 @@ int VBWeekendOffset(datetime previous, datetime opening)
    return CLOCK_UNKNOWN;
 }
 
-int VBExpectedBrokerUTC(datetime utc)
+// US Eastern DST: starts 02:00 EST on the second Sunday in March
+// (07:00 UTC), and ends 02:00 EDT on the first Sunday in November
+// (06:00 UTC). The input is a UTC timestamp, not broker/server time.
+bool VBIsNewYorkDST(datetime utc)
 {
-   MqlDateTime dt;
-   TimeToStruct(utc, dt);
-   // Approximate US DST: 2nd Sunday March to 1st Sunday Nov
-   if(dt.mon > 3 && dt.mon < 11) return 3; // Summer (UTC+3 for typical broker, e.g. EET)
-   if(dt.mon == 3 && dt.day >= 8) return 3;
-   if(dt.mon == 11 && dt.day < 7) return 3;
-   return 2; // Winter (UTC+2)
+   MqlDateTime parts;
+   TimeToStruct(utc, parts);
+   int year = parts.year;
+
+   MqlDateTime dateParts;
+   ZeroMemory(dateParts);
+   dateParts.year = year;
+   dateParts.mon = 3;
+   dateParts.day = 1;
+   datetime marchFirst = StructToTime(dateParts);
+   TimeToStruct(marchFirst, dateParts);
+   int daysToFirstSundayMarch = (7 - dateParts.day_of_week) % 7;
+   datetime secondSundayMarch = marchFirst + (daysToFirstSundayMarch + 7) * 86400;
+   datetime dstStartUtc = secondSundayMarch + 7 * 3600;
+
+   ZeroMemory(dateParts);
+   dateParts.year = year;
+   dateParts.mon = 11;
+   dateParts.day = 1;
+   datetime novemberFirst = StructToTime(dateParts);
+   TimeToStruct(novemberFirst, dateParts);
+   int daysToFirstSundayNovember = (7 - dateParts.day_of_week) % 7;
+   datetime firstSundayNovember = novemberFirst + daysToFirstSundayNovember * 86400;
+   datetime dstEndUtc = firstSundayNovember + 6 * 3600;
+
+   return (utc >= dstStartUtc && utc < dstEndUtc);
 }
 
 int VBWeekAnchorOffset(datetime stamp)
@@ -153,14 +175,31 @@ int VBWeekAnchorOffset(datetime stamp)
 
 int VBServerNYOffsetSec(datetime stamp)
 {
-   if(MQLInfoInteger(MQL_TESTER)) return VBWeekAnchorOffset(stamp);
-   datetime utc = TimeGMT(), server = TimeTradeServer();
-   if(server <= 0 || utc <= 0) return CLOCK_UNKNOWN;
-   int raw = (int)(server - utc), offset = (int)MathRound((double)raw / 900.0) * 900;
-   if(MathAbs(raw - offset) > 120 || offset < -12 * 3600 || offset > 14 * 3600) return CLOCK_UNKNOWN;
-   if(MathAbs((double)(stamp - server)) > 7 * 86400)
+   // The Strategy Tester weekend anchor already returns server-time minus
+   // New York-time. Do not interpret it as a broker UTC offset.
+   if(MQLInfoInteger(MQL_TESTER))
       return VBWeekAnchorOffset(stamp);
-   return offset - (VBExpectedBrokerUTC(stamp - offset) - 7) * 3600;
+
+   datetime utcNow = TimeGMT();
+   datetime serverNow = TimeTradeServer();
+   if(serverNow <= 0 || utcNow <= 0) return CLOCK_UNKNOWN;
+
+   int raw = (int)(serverNow - utcNow);
+   int brokerUtcOffsetSec = (int)MathRound((double)raw / 900.0) * 900;
+   if(MathAbs(raw - brokerUtcOffsetSec) > 120 ||
+      brokerUtcOffsetSec < -12 * 3600 || brokerUtcOffsetSec > 14 * 3600)
+      return CLOCK_UNKNOWN;
+
+   // Historical timestamps cannot safely reuse today's live offset. The
+   // weekend anchor returns the final server-to-New-York offset directly.
+   if(MathAbs((double)(stamp - serverNow)) > 7 * 86400)
+      return VBWeekAnchorOffset(stamp);
+
+   // Convert this broker timestamp to UTC, then use the exact New York
+   // offset (-04:00 during US DST, -05:00 otherwise). Broker DST may differ.
+   datetime utcStamp = stamp - brokerUtcOffsetSec;
+   int newYorkUtcOffsetSec = VBIsNewYorkDST(utcStamp) ? -4 * 3600 : -5 * 3600;
+   return brokerUtcOffsetSec - newYorkUtcOffsetSec;
 }
 
 datetime NYTime(datetime serverTime)
