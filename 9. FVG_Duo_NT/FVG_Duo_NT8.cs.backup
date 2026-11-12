@@ -1,0 +1,446 @@
+//+------------------------------------------------------------------+
+//|                                                   FVG_Duo_NT8.cs |
+//| FVG Duo - Opening Drive FVG + Trend FVG Strategy                 |
+//| Developed by Osamwonyi Eric (@You_FoundEric)                     |
+//| Copyright 2026-2027, Osamwonyi Eric (@You_FoundEric)             |
+//+------------------------------------------------------------------+
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using System.Windows.Media;
+using System.Xml.Serialization;
+using NinjaTrader.Cbi;
+using NinjaTrader.Core;
+using NinjaTrader.Data;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Chart;
+using NinjaTrader.NinjaScript;
+using NinjaTrader.NinjaScript.DrawingTools;
+using NinjaTrader.NinjaScript.Indicators;
+
+namespace NinjaTrader.NinjaScript.Strategies
+{
+    public enum ModelPresetNT8
+    {
+        [Display(Name = "Optimal B3a (1.25x ATR, 50/100 EMA, 1.25% Stop)")]
+        OptimalB3a,
+        [Display(Name = "Parity RMA C1 (1.5x ATR, 50/100 EMA, 1.5% Stop)")]
+        ParityRmaC1,
+        [Display(Name = "Video Base B1 (1.5x ATR, 50/100 EMA, 1.5% Stop)")]
+        VideoBaseB1,
+        [Display(Name = "Custom Parameters")]
+        Custom
+    }
+
+    public enum SizingModeNT8
+    {
+        [Display(Name = "Fixed Contracts / Lots")]
+        FixedLots,
+        [Display(Name = "Risk % of Live Equity")]
+        RiskPercent,
+        [Display(Name = "Cash Risk USD")]
+        CashRisk
+    }
+
+    public class FVG_Duo_NT8 : Strategy
+    {
+        #region Inputs
+        [NinjaScriptProperty]
+        [Display(Name = "Model Preset", Order = 1, GroupName = "1. Model Preset")]
+        public ModelPresetNT8 Preset { get; set; } = ModelPresetNT8.OptimalB3a;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Enable Opening Drive", Order = 2, GroupName = "2. Strategy Logic")]
+        public bool EnableOD { get; set; } = true;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Enable Trend FVG", Order = 3, GroupName = "2. Strategy Logic")]
+        public bool EnableTrend { get; set; } = true;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Trend ATR Multiplier", Order = 4, GroupName = "2. Strategy Logic")]
+        public double TrendAtrMult { get; set; } = 1.25;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Trend EMA Fast", Order = 5, GroupName = "2. Strategy Logic")]
+        public int TrendEmaFast { get; set; } = 50;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Trend EMA Slow", Order = 6, GroupName = "2. Strategy Logic")]
+        public int TrendEmaSlow { get; set; } = 100;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Trend RR Target", Order = 7, GroupName = "2. Strategy Logic")]
+        public double TrendRR { get; set; } = 3.0;
+
+        [NinjaScriptProperty]
+        [Display(Name = "OD Stop Loss %", Order = 8, GroupName = "2. Strategy Logic")]
+        public double ODStopPct { get; set; } = 0.0125; // 1.25%
+
+        [NinjaScriptProperty]
+        [Display(Name = "Trend Trade After OD Stopout", Order = 9, GroupName = "2. Strategy Logic")]
+        public bool TrendAfterODStopout { get; set; } = true;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Strict FVG Inequality", Order = 10, GroupName = "2. Strategy Logic")]
+        public bool StrictFvg { get; set; } = true;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Position Sizing Mode", Order = 11, GroupName = "3. Sizing & Risk")]
+        public SizingModeNT8 SizingMode { get; set; } = SizingModeNT8.FixedLots;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Fixed Lots / Contracts", Order = 12, GroupName = "3. Sizing & Risk")]
+        public int FixedLots { get; set; } = 1;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Risk % per Trade", Order = 13, GroupName = "3. Sizing & Risk")]
+        public double RiskPercent { get; set; } = 1.0;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Cash Risk USD", Order = 14, GroupName = "3. Sizing & Risk")]
+        public double CashRiskUSD { get; set; } = 1000.0;
+
+        [NinjaScriptProperty]
+        [Display(Name = "Show On-Chart HUD", Order = 15, GroupName = "4. Visuals")]
+        public bool ShowHUD { get; set; } = true;
+        #endregion
+
+        #region Indicators & Series References
+        // Multi-timeframe series indices:
+        // BarsArray[0] = 5-minute (Chart base, entry bars)
+        // BarsArray[1] = 1-minute (Intraday execution & stop evaluation)
+        // BarsArray[2] = 10-minute (Opening Drive gap detection)
+        // BarsArray[3] = 15-minute (Trend FVG indicators: EMA50, EMA100, ATR14)
+        private EMA _emaFast15m;
+        private EMA _emaSlow15m;
+        private ATR _atr14_15m;
+
+        // Daily State
+        private DateTime _currentTradingDate = DateTime.MinValue;
+        private bool _odCheck1Done = false;
+        private bool _odCheck2Done = false;
+        private bool _odFiredToday = false;
+        private DateTime _odStopoutTime = DateTime.MinValue;
+
+        // Active Position State
+#pragma warning disable CS0414
+        private string _activeSource = ""; // "OD", "TREND", "MERGED"
+        private double _activeEntryPrice = 0.0;
+        private double _activeStopPrice = 0.0;
+        private double _activeTargetPrice = 0.0;
+        private int _activeSide = 0; // +1 Long, -1 Short
+        private double _sessionPnL = 0.0;
+        private string _statusText = "INITIALIZING";
+#pragma warning restore CS0414
+
+        // Resolved parameters
+        private double _actAtrMult;
+        private int _actEmaFast;
+        private int _actEmaSlow;
+        private double _actStopPct;
+        private bool _actAfterStopout;
+        #endregion
+
+        protected override void OnStateChange()
+        {
+            if (State == State.SetDefaults)
+            {
+                Name = "FVG_Duo_NT8";
+                Description = "FVG Duo - Opening Drive FVG + Trend FVG for Nasdaq Futures (NQ, MNQ)";
+                Calculate = Calculate.OnBarClose;
+                EntriesPerDirection = 1;
+                EntryHandling = EntryHandling.AllEntries;
+                IsExitOnSessionCloseStrategy = false;
+                BarsRequiredToTrade = 150;
+            }
+            else if (State == State.Configure)
+            {
+                // Add required data series
+                AddDataSeries(BarsPeriodType.Minute, 1);  // Index 1: 1-minute
+                AddDataSeries(BarsPeriodType.Minute, 10); // Index 2: 10-minute
+                AddDataSeries(BarsPeriodType.Minute, 15); // Index 3: 15-minute
+
+                ResolvePresetValues();
+            }
+            else if (State == State.DataLoaded)
+            {
+                // Indicators on 15m series (BarsArray[3])
+                _emaFast15m = EMA(BarsArray[3], _actEmaFast);
+                _emaSlow15m = EMA(BarsArray[3], _actEmaSlow);
+                _atr14_15m  = ATR(BarsArray[3], 14);
+            }
+        }
+
+        private void ResolvePresetValues()
+        {
+            if (Preset == ModelPresetNT8.OptimalB3a)
+            {
+                _actAtrMult = 1.25;
+                _actEmaFast = 50;
+                _actEmaSlow = 100;
+                _actStopPct = 0.0125;
+                _actAfterStopout = true;
+            }
+            else if (Preset == ModelPresetNT8.ParityRmaC1)
+            {
+                _actAtrMult = 1.50;
+                _actEmaFast = 50;
+                _actEmaSlow = 100;
+                _actStopPct = 0.0150;
+                _actAfterStopout = false;
+            }
+            else if (Preset == ModelPresetNT8.VideoBaseB1)
+            {
+                _actAtrMult = 1.50;
+                _actEmaFast = 50;
+                _actEmaSlow = 100;
+                _actStopPct = 0.0150;
+                _actAfterStopout = false;
+            }
+            else
+            {
+                _actAtrMult = TrendAtrMult;
+                _actEmaFast = TrendEmaFast;
+                _actEmaSlow = TrendEmaSlow;
+                _actStopPct = ODStopPct;
+                _actAfterStopout = TrendAfterODStopout;
+            }
+        }
+
+        protected override void OnBarUpdate()
+        {
+            // We manage execution logic from 1-minute bars (BarsInProgress == 1) for precision
+            if (BarsInProgress == 1)
+            {
+                OnBarUpdate1m();
+                return;
+            }
+        }
+
+        private void OnBarUpdate1m()
+        {
+            if (CurrentBars[1] < 20 || CurrentBars[2] < 5 || CurrentBars[3] < _actEmaSlow + 10)
+                return;
+
+            DateTime barTime = Times[1][0]; // Time of 1m bar
+            DateTime barDate = barTime.Date;
+
+            // Daily reset
+            if (barDate != _currentTradingDate)
+            {
+                _currentTradingDate = barDate;
+                _odCheck1Done = false;
+                _odCheck2Done = false;
+                _odFiredToday = false;
+                _odStopoutTime = DateTime.MinValue;
+                _sessionPnL = 0.0;
+                _statusText = "PRE-MARKET";
+            }
+
+            int minuteOfDay = barTime.Hour * 60 + barTime.Minute;
+
+            // 1. Session Close Flatten (16:00 ET = minute 960)
+            if (minuteOfDay >= 16 * 60)
+            {
+                if (Position.MarketPosition != MarketPosition.Flat)
+                {
+                    ExitLong("Exit 16:00 Close");
+                    ExitShort("Exit 16:00 Close");
+                    _activeSide = 0;
+                    _statusText = "SESSION CLOSED";
+                }
+                return;
+            }
+
+            // 2. OPENING DRIVE CHECK 1 (09:40 ET = minute 580)
+            if (EnableOD && !_odCheck1Done && minuteOfDay == 9 * 60 + 40)
+            {
+                _odCheck1Done = true;
+                // Read 10-minute series (BarsArray[2])
+                // Check if 10m bar at 09:30 closed (c3=09:30, c2=09:20, c1=09:10)
+                if (CurrentBars[2] >= 3)
+                {
+                    double c1High = Highs[2][3], c1Low = Lows[2][3];
+                    double c3High = Highs[2][1], c3Low = Lows[2][1];
+
+                    bool bull = StrictFvg ? (c3Low > c1High) : (c3Low >= c1High);
+                    bool bear = StrictFvg ? (c3High < c1Low) : (c3High <= c1Low);
+
+                    if (bull || bear)
+                    {
+                        _odFiredToday = true;
+                        _statusText = "OD CHECK 1 FIRED";
+                        HandleODSignal(bull ? 1 : -1);
+                    }
+                }
+            }
+
+            // 3. OPENING DRIVE CHECK 2 (09:50 ET = minute 590, only if Check 1 didn't fire)
+            if (EnableOD && !_odFiredToday && !_odCheck2Done && minuteOfDay == 9 * 60 + 50)
+            {
+                _odCheck2Done = true;
+                if (CurrentBars[2] >= 3)
+                {
+                    double c1High = Highs[2][3], c1Low = Lows[2][3];
+                    double c3High = Highs[2][1], c3Low = Lows[2][1];
+
+                    bool bull = StrictFvg ? (c3Low > c1High) : (c3Low >= c1High);
+                    bool bear = StrictFvg ? (c3High < c1Low) : (c3High <= c1Low);
+
+                    if (bull || bear)
+                    {
+                        _odFiredToday = true;
+                        _statusText = "OD CHECK 2 FIRED";
+                        HandleODSignal(bull ? 1 : -1);
+                    }
+                }
+            }
+
+            // 4. TREND FVG (On completed 15m bars, between 09:30 and 15:30 ET)
+            if (EnableTrend && (barTime.Minute % 15 == 0) && minuteOfDay >= 9 * 60 + 30 && minuteOfDay <= 15 * 60 + 30)
+            {
+                bool canTradeTrend = (Position.MarketPosition == MarketPosition.Flat);
+                if (_odFiredToday && !canTradeTrend)
+                {
+                    if (_actAfterStopout && _odStopoutTime > DateTime.MinValue && barTime >= _odStopoutTime && Position.MarketPosition == MarketPosition.Flat)
+                        canTradeTrend = true;
+                }
+                else if (!_odFiredToday && Position.MarketPosition == MarketPosition.Flat)
+                {
+                    canTradeTrend = true;
+                }
+
+                if (canTradeTrend)
+                {
+                    CheckAndExecuteTrendFVG();
+                }
+            }
+        }
+
+        private void HandleODSignal(int odSide)
+        {
+            double entryPrice = Closes[1][0]; // Current open of 5m bar
+            double tick = TickSize;
+
+            // Merge Case: open Trend Long meets OD Long
+            if (Position.MarketPosition == MarketPosition.Long && odSide > 0)
+            {
+                double rawStop = _activeEntryPrice * (1.0 - _actStopPct);
+                _activeStopPrice = Math.Floor(rawStop / tick) * tick;
+                _activeTargetPrice = 0.0; // Remove target
+                _activeSource = "MERGED";
+                SetStopLoss(CalculationMode.Price, _activeStopPrice);
+                _statusText = "MERGED TO OD RULES";
+                return;
+            }
+
+            // Flip Case: open Trend Long meets OD Short
+            if (Position.MarketPosition == MarketPosition.Long && odSide < 0)
+            {
+                ExitLong("Flip Long to Short");
+                double rawStop = entryPrice * (1.0 + _actStopPct);
+                _activeStopPrice = Math.Ceiling(rawStop / tick) * tick;
+                _activeTargetPrice = 0.0;
+                _activeSource = "OD";
+                _activeSide = -1;
+                _activeEntryPrice = entryPrice;
+                EnterShort(FixedLots, "OD Short");
+                SetStopLoss(CalculationMode.Price, _activeStopPrice);
+                _statusText = "FLIPPED TO OD SHORT";
+                return;
+            }
+
+            // Flat Case: enter OD trade
+            if (Position.MarketPosition == MarketPosition.Flat)
+            {
+                if (odSide > 0)
+                {
+                    double rawStop = entryPrice * (1.0 - _actStopPct);
+                    _activeStopPrice = Math.Floor(rawStop / tick) * tick;
+                    _activeTargetPrice = 0.0;
+                    _activeSource = "OD";
+                    _activeSide = 1;
+                    _activeEntryPrice = entryPrice;
+                    EnterLong(FixedLots, "OD Long");
+                    SetStopLoss(CalculationMode.Price, _activeStopPrice);
+                    _statusText = "OD LONG ENTERED";
+                }
+                else
+                {
+                    double rawStop = entryPrice * (1.0 + _actStopPct);
+                    _activeStopPrice = Math.Ceiling(rawStop / tick) * tick;
+                    _activeTargetPrice = 0.0;
+                    _activeSource = "OD";
+                    _activeSide = -1;
+                    _activeEntryPrice = entryPrice;
+                    EnterShort(FixedLots, "OD Short");
+                    SetStopLoss(CalculationMode.Price, _activeStopPrice);
+                    _statusText = "OD SHORT ENTERED";
+                }
+            }
+        }
+
+        private void CheckAndExecuteTrendFVG()
+        {
+            // 15-minute series (BarsArray[3])
+            // c3 = Highs[3][1], c2 = Highs[3][2], c1 = Highs[3][3]
+            if (CurrentBars[3] < _actEmaSlow + 10) return;
+
+            // Check consecutive
+            if (Times[3][1].Subtract(Times[3][2]).TotalMinutes != 15 || Times[3][2].Subtract(Times[3][3]).TotalMinutes != 15)
+                return;
+
+            double c1High = Highs[3][3], c1Low = Lows[3][3];
+            double c3Low  = Lows[3][1];
+
+            // Rule b: Bullish FVG
+            bool bull = StrictFvg ? (c3Low > c1High) : (c3Low >= c1High);
+            if (!bull) return;
+
+            // Rule c: Displacement (c2 range >= mult * ATR)
+            double atr = _atr14_15m[1];
+            if (double.IsNaN(atr) || atr <= 0) return;
+            double c2Range = Highs[3][2] - Lows[3][2];
+            if (c2Range < _actAtrMult * atr) return;
+
+            // Rule d: Trend (EMA Fast > EMA Slow)
+            double emaFast = _emaFast15m[1];
+            double emaSlow = _emaSlow15m[1];
+            if (double.IsNaN(emaFast) || double.IsNaN(emaSlow) || emaFast <= emaSlow) return;
+
+            // Entry geometry
+            double entryPrice = Closes[1][0];
+            double stopPrice  = c1Low - TickSize;
+            if (entryPrice <= stopPrice) return;
+
+            double R = entryPrice - stopPrice;
+            double targetPrice = entryPrice + TrendRR * R;
+
+            _activeSide = 1;
+            _activeSource = "TREND";
+            _activeEntryPrice = entryPrice;
+            _activeStopPrice = stopPrice;
+            _activeTargetPrice = targetPrice;
+
+            EnterLong(FixedLots, "Trend Long");
+            SetStopLoss(CalculationMode.Price, stopPrice);
+            SetProfitTarget(CalculationMode.Price, targetPrice);
+            _statusText = "TREND LONG ENTERED";
+        }
+
+        protected override void OnExecutionUpdate(Execution execution, string executionId, double price, int quantity, MarketPosition marketPosition, string orderId, DateTime time)
+        {
+            if (execution.Order != null && execution.Order.OrderState == OrderState.Filled)
+            {
+                if (execution.Name.Contains("Stop") && _activeSource == "OD")
+                {
+                    _odStopoutTime = time;
+                }
+            }
+        }
+    }
+}
