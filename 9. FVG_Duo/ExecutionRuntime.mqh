@@ -21,6 +21,39 @@ double   ownedTargetPrice  = 0.0;
 datetime ownedEntryTime    = 0;
 bool     ownedActive       = false;
 
+// Persist MERGED ownership across EA/terminal restarts. Position identifiers
+// are unique within an account; terminal globals are local to this terminal.
+string MergedStateGlobalKey(ulong positionId)
+{
+   return StringFormat("FVDM_%I64d_%I64u",
+                       AccountInfoInteger(ACCOUNT_LOGIN), positionId);
+}
+
+bool IsPersistedMergedPosition(ulong positionId)
+{
+   if(positionId == 0) return false;
+   string key = MergedStateGlobalKey(positionId);
+   return GlobalVariableCheck(key) && GlobalVariableGet(key) > 0.5;
+}
+
+void PersistMergedPosition(ulong positionId)
+{
+   if(positionId == 0) return;
+   GlobalVariableSet(MergedStateGlobalKey(positionId), 1.0);
+   GlobalVariablesFlush();
+}
+
+void ClearPersistedMergedPosition(ulong positionId)
+{
+   if(positionId == 0) return;
+   string key = MergedStateGlobalKey(positionId);
+   if(GlobalVariableCheck(key))
+   {
+      GlobalVariableDel(key);
+      GlobalVariablesFlush();
+   }
+}
+
 // Sizing calculation
 double CalculateLotSize(double entryPrice, double stopPrice)
 {
@@ -66,6 +99,9 @@ double CalculateLotSize(double entryPrice, double stopPrice)
 // Reconcile and recover owned position after restart
 void ReconcileOwnedPosition()
 {
+   ulong  prevTicket = ownedTicket;
+   string prevSource = ownedSource;
+
    ownedActive = false;
    ownedTicket = 0;
    ownedPositionId = 0;
@@ -91,6 +127,12 @@ void ReconcileOwnedPosition()
       if(StringFind(comment, "MERGED") >= 0)      ownedSource = "MERGED";
       else if(StringFind(comment, "TREND") >= 0)   ownedSource = "TREND";
       else                                         ownedSource = "OD";
+
+      // The broker may retain the original FVG_TREND comment after merge.
+      // The terminal-global marker survives EA and terminal restarts.
+      if(IsPersistedMergedPosition(ownedPositionId) ||
+         (ticket == prevTicket && prevSource == "MERGED"))
+         ownedSource = "MERGED";
 
       ownedActive = true;
       PrintFormat("[FVG_DUO] Recovered owned position ticket=%I64u id=%I64u side=%s entry=%.2f sl=%.2f tp=%.2f source=%s",
@@ -145,6 +187,7 @@ bool ExecuteClose(string reason)
    if(res)
    {
       PrintFormat("[FVG_DUO] Position ticket=%I64u closed reason=%s", ownedTicket, reason);
+      ClearPersistedMergedPosition(ownedPositionId);
       ownedActive = false;
       ownedTicket = 0;
       ownedPositionId = 0;
@@ -170,6 +213,10 @@ bool ExecuteModify(double newSL, double newTP, string newComment)
       ownedStopPrice   = newSL;
       ownedTargetPrice = newTP;
       ownedSource      = newComment;
+      if(newComment == "MERGED")
+         PersistMergedPosition(ownedPositionId);
+      else
+         ClearPersistedMergedPosition(ownedPositionId);
       PrintFormat("[FVG_DUO] Position ticket=%I64u modified to sl=%.2f tp=%.2f status=%s",
                   ownedTicket, newSL, newTP, newComment);
       return true;

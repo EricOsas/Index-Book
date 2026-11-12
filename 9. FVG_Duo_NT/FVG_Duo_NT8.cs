@@ -113,7 +113,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         #region Internal State
         private EMA _emaFast15m;
         private EMA _emaSlow15m;
-        private ATR _atr14_15m;
 
         private static readonly TimeZoneInfo NewYorkTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
         private TimeZoneInfo _platformZone;
@@ -132,6 +131,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double _activeTargetPrice;
 
         private double _actAtrMult;
+        private int _actAtrAgo;
+        private bool _actUseRma;
         private int _actEmaFast;
         private int _actEmaSlow;
         private double _actStopPct;
@@ -179,7 +180,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 _emaFast15m = EMA(BarsArray[3], _actEmaFast);
                 _emaSlow15m = EMA(BarsArray[3], _actEmaSlow);
-                _atr14_15m  = ATR(BarsArray[3], 14);
 
                 _platformZone = Core.Globals.GeneralOptions.TimeZoneInfo;
                 Print("[FVG_DUO] NinjaTrader application timezone: " + _platformZone.Id + "; strategy clock: America/New_York");
@@ -194,6 +194,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Preset == ModelPresetNT8.OptimalB3a)
             {
                 _actAtrMult = 1.25;
+                _actUseRma = false;
+                _actAtrAgo = 2; // Optimal B3a: SMA/c2
                 _actEmaFast = 50;
                 _actEmaSlow = 100;
                 _actStopPct = 0.0125;
@@ -202,6 +204,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (Preset == ModelPresetNT8.ParityRmaC1)
             {
                 _actAtrMult = 1.50;
+                _actUseRma = true;
+                _actAtrAgo = 3; // Parity RMA/c1
                 _actEmaFast = 50;
                 _actEmaSlow = 100;
                 _actStopPct = 0.0150;
@@ -210,6 +214,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (Preset == ModelPresetNT8.VideoBaseB1)
             {
                 _actAtrMult = 1.50;
+                _actUseRma = false;
+                _actAtrAgo = 2; // Video Base B1: SMA/c2
                 _actEmaFast = 50;
                 _actEmaSlow = 100;
                 _actStopPct = 0.0150;
@@ -218,6 +224,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             else
             {
                 _actAtrMult = TrendAtrMult;
+                _actUseRma = false;
+                _actAtrAgo = 2; // Custom default: SMA/c2
                 _actEmaFast = TrendEmaFast;
                 _actEmaSlow = TrendEmaSlow;
                 _actStopPct = ODStopPct;
@@ -320,15 +328,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             // 4. TREND FVG (On completed 15m bars, between 09:30 and 15:30 ET)
             if (EnableTrend && (nyTime.Minute % 15 == 0) && minuteOfDay >= 9 * 60 + 30 && minuteOfDay <= 15 * 60 + 30)
             {
-                bool canTradeTrend = (Position.MarketPosition == MarketPosition.Flat);
-                if (_odFiredToday && !canTradeTrend)
+                bool canTradeTrend = false;
+                if (Position.MarketPosition == MarketPosition.Flat)
                 {
-                    if (_actAfterStopout && _odStopoutTime > DateTime.MinValue && nyTime >= _odStopoutTime && Position.MarketPosition == MarketPosition.Flat)
+                    if (!_odFiredToday)
                         canTradeTrend = true;
-                }
-                else if (!_odFiredToday && Position.MarketPosition == MarketPosition.Flat)
-                {
-                    canTradeTrend = true;
+                    else if (_actAfterStopout && _odStopoutTime > DateTime.MinValue &&
+                             nyTime >= _odStopoutTime)
+                        canTradeTrend = true;
                 }
 
                 if (canTradeTrend)
@@ -398,9 +405,52 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
         }
 
+        // Match the Python oracle's TR and ATR initialization exactly.
+        // BarsAgo is series-oriented: larger indexes are older bars.
+        private double TrueRange15(int ago)
+        {
+            if (ago < 0 || ago > CurrentBars[3]) return 0.0;
+            double h = Highs[3][ago];
+            double l = Lows[3][ago];
+            if (ago == CurrentBars[3]) return h - l;
+            double pc = Closes[3][ago + 1];
+            return Math.Max(h - l, Math.Max(Math.Abs(h - pc), Math.Abs(l - pc)));
+        }
+
+        private double Atr15(int ago)
+        {
+            const int period = 14;
+            if (ago < 0 || CurrentBars[3] - ago + 1 < period) return 0.0;
+
+            if (!_actUseRma)
+            {
+                double sum = 0.0;
+                for (int j = 0; j < period; j++)
+                    sum += TrueRange15(ago + j);
+                return sum / period;
+            }
+
+            double seed = 0.0;
+            double atr = 0.0;
+            int seen = 0;
+            for (int barsAgo = CurrentBars[3]; barsAgo >= ago; barsAgo--)
+            {
+                double tr = TrueRange15(barsAgo);
+                if (seen < period)
+                {
+                    seed += tr;
+                    seen++;
+                    if (seen == period) atr = seed / period;
+                }
+                else
+                    atr = (atr * (period - 1) + tr) / period;
+            }
+            return seen == period ? atr : 0.0;
+        }
+
         private void CheckAndExecuteTrendFVG()
         {
-            if (CurrentBars[3] < _actEmaSlow + 10) return;
+            if (CurrentBars[3] < Math.Max(_actEmaSlow + 10, 1001)) return;
 
             if (Times[3][1].Subtract(Times[3][2]).TotalMinutes != 15 || Times[3][2].Subtract(Times[3][3]).TotalMinutes != 15)
                 return;
@@ -411,7 +461,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             bool bull = StrictFvg ? (c3Low > c1High) : (c3Low >= c1High);
             if (!bull) return;
 
-            double atr = _atr14_15m[1];
+            double atr = Atr15(_actAtrAgo);
             if (double.IsNaN(atr) || atr <= 0) return;
             double c2Range = Highs[3][2] - Lows[3][2];
             if (c2Range < _actAtrMult * atr) return;
@@ -443,7 +493,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (execution.Order != null && execution.Order.OrderState == OrderState.Filled)
             {
-                if (execution.Name != null && execution.Name.Contains("SL") && _activeSource == "OD")
+                if (execution.Name != null && execution.Name.Contains("SL") && (_activeSource == "OD" || _activeSource == "MERGED"))
                 {
                     _odStopoutTime = ToNewYork(time);
                 }

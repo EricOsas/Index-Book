@@ -222,36 +222,65 @@ double ComputeEMA(const double &prices[], int period, int count)
    return ema;
 }
 
-double ComputeATR(const MqlRates &rates[], int period, ENUM_ATR_METHOD method, int count)
+// rates[] is series-oriented: shift 0 is newest. Calculate ATR in
+// chronological order and stop at the requested completed-bar shift.
+double ComputeATRAt(const MqlRates &rates[], int period,
+                         ENUM_ATR_METHOD method, int count, int targetShift)
 {
-   if(count <= period) return 0.0;
-   double tr[];
-   ArrayResize(tr, count);
-   tr[0] = rates[0].high - rates[0].low;
-   for(int i = 1; i < count; i++)
-   {
-      double hl = rates[i].high - rates[i].low;
-      double hc = MathAbs(rates[i].high - rates[i - 1].close);
-      double lc = MathAbs(rates[i].low  - rates[i - 1].close);
-      tr[i] = MathMax(hl, MathMax(hc, lc));
-   }
+   if(count <= period || targetShift < 0 || targetShift >= count ||
+      count - targetShift < period)
+      return 0.0;
 
    if(method == ATR_METHOD_RMA)
    {
-      double sum = 0.0;
-      for(int i = 0; i < period; i++) sum += tr[i];
-      double atr = sum / period;
-      for(int i = period; i < count; i++)
-         atr = (atr * (period - 1) + tr[i]) / period;
-      return atr;
+      double seed = 0.0;
+      int seen = 0;
+      double atr = 0.0;
+
+      // Oldest -> newest, ending at targetShift. This matches the Python
+      // oracle: first ATR is the mean of the first 'period' true ranges.
+      for(int shift = count - 1; shift >= targetShift; shift--)
+      {
+         double tr;
+         if(shift == count - 1)
+            tr = rates[shift].high - rates[shift].low;
+         else
+         {
+            double hl = rates[shift].high - rates[shift].low;
+            double hc = MathAbs(rates[shift].high - rates[shift + 1].close);
+            double lc = MathAbs(rates[shift].low  - rates[shift + 1].close);
+            tr = MathMax(hl, MathMax(hc, lc));
+         }
+
+         if(seen < period)
+         {
+            seed += tr;
+            seen++;
+            if(seen == period) atr = seed / period;
+         }
+         else
+            atr = (atr * (period - 1) + tr) / period;
+      }
+      return (seen == period) ? atr : 0.0;
    }
-   else // SMA
+
+   // SMA ATR at targetShift: the period true ranges ending at that bar.
+   double sum = 0.0;
+   for(int shift = targetShift; shift < targetShift + period; shift++)
    {
-      double sum = 0.0;
-      for(int i = count - period; i < count; i++)
-         sum += tr[i];
-      return sum / period;
+      double tr;
+      if(shift == count - 1)
+         tr = rates[shift].high - rates[shift].low;
+      else
+      {
+         double hl = rates[shift].high - rates[shift].low;
+         double hc = MathAbs(rates[shift].high - rates[shift + 1].close);
+         double lc = MathAbs(rates[shift].low  - rates[shift + 1].close);
+         tr = MathMax(hl, MathMax(hc, lc));
+      }
+      sum += tr;
    }
+   return sum / period;
 }
 
 //+------------------------------------------------------------------+
@@ -449,17 +478,16 @@ void OnBarCloseM1(datetime currentM1BarOpen)
    // 4. TREND FVG (On completed 15m bars, between 09:30 and 15:30 NY)
    if(InpEnableTrend && (dtNY.min % 15 == 0) && nyMinuteOfDay >= 9 * 60 + 30 && nyMinuteOfDay <= 15 * 60 + 30)
    {
-      // Check if position blocked
-      bool canTradeTrend = !ownedActive;
-      if(g_odFiredToday && !canTradeTrend)
+      // Trend may trade before OD fires, or after an OD/MERGED stopout
+      // when the active preset explicitly enables post-stopout trading.
+      bool canTradeTrend = false;
+      if(!ownedActive)
       {
-         // If OD stopped out and flag is enabled
-         if(actTrendAfterStopout && g_odStopoutBarClose > 0 && currentM1BarOpen >= g_odStopoutBarClose && !ownedActive)
+         if(!g_odFiredToday)
             canTradeTrend = true;
-      }
-      else if(!g_odFiredToday && !ownedActive)
-      {
-         canTradeTrend = true;
+         else if(actTrendAfterStopout && g_odStopoutBarClose > 0 &&
+                 currentM1BarOpen >= g_odStopoutBarClose)
+            canTradeTrend = true;
       }
 
       if(canTradeTrend)
@@ -534,9 +562,14 @@ void CheckAndExecuteTrendFVG(datetime currentBarOpen)
 {
    MqlRates r15[];
    ArraySetAsSeries(r15, true);
-   int count = MathMax(actTrendEmaSlow + 10, 100);
-   int copied = CopyRates(_Symbol, PERIOD_M15, currentBarOpen, count, r15);
-   if(copied < count) return;
+   // Oracle warmup is 1,000 completed M15 bars before the first signal.
+   // Load full available history so recursive RMA is seeded only once,
+   // rather than being reseeded on a rolling 1,002-bar window.
+   const int WARMUP_BARS = 1000;
+   int count = Bars(_Symbol, PERIOD_M15);
+   if(count < WARMUP_BARS + 2) return;
+   int copied = CopyRates(_Symbol, PERIOD_M15, 0, count, r15);
+   if(copied < WARMUP_BARS + 2) return;
 
    // r15[1] is c3 (just closed), r15[2] is c2, r15[3] is c1
    // Check consecutive
@@ -550,17 +583,22 @@ void CheckAndExecuteTrendFVG(datetime currentBarOpen)
    if(!bullFvg) return;
 
    // Rule c: Displacement (c2 range >= mult * ATR)
-   double atr = ComputeATR(r15, 14, actAtrMethod, copied - 1);
+   int atrShift = (actAtrRef == ATR_REF_C1) ? 3 : 2;
+   double atr = ComputeATRAt(r15, 14, actAtrMethod, copied, atrShift);
    if(atr <= 0) return;
    double c2Range = r15[2].high - r15[2].low;
    if(c2Range < actTrendAtrMult * atr) return;
 
    // Rule d: Trend (EMA_fast > EMA_slow)
+   // Oracle trend filter is evaluated on c3, not the still-forming M15 bar.
+   // Exclude series shift 0 and build the EMA chronologically through shift 1.
+   int emaCount = copied - 1;
    double closes[];
-   ArrayResize(closes, copied);
-   for(int i = 0; i < copied; i++) closes[i] = r15[copied - 1 - i].close; // Oldest first
-   double emaFast = ComputeEMA(closes, actTrendEmaFast, copied);
-   double emaSlow = ComputeEMA(closes, actTrendEmaSlow, copied);
+   ArrayResize(closes, emaCount);
+   for(int i = 0; i < emaCount; i++)
+      closes[i] = r15[copied - 1 - i].close; // Oldest through c3
+   double emaFast = ComputeEMA(closes, actTrendEmaFast, emaCount);
+   double emaSlow = ComputeEMA(closes, actTrendEmaSlow, emaCount);
    if(emaFast <= emaSlow) return;
 
    // Geometry: Entry at current market, Stop at c1.low - 1 tick, Target = entry + 3R
@@ -665,4 +703,62 @@ double OnTester()
    FileClose(handle);
    PrintFormat("[FVG_DUO] TESTER_COMPLETE: exported %d trades, Net P&L: %.2f USD", tradeCount, totalNet);
    return totalNet;
+}
+
+
+//+------------------------------------------------------------------+
+//| Record OD/MERGED stopout at the closing M1 bar boundary           |
+//+------------------------------------------------------------------+
+bool IsPositionIdentifierOpen(ulong positionId)
+{
+   if(positionId == 0) return false;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if((ulong)PositionGetInteger(POSITION_IDENTIFIER) == positionId)
+         return true;
+   }
+   return false;
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                         const MqlTradeRequest &request,
+                         const MqlTradeResult &result)
+{
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != (long)InpMagic) return;
+   if(HistoryDealGetString(trans.deal, DEAL_SYMBOL) != _Symbol) return;
+   if(HistoryDealGetInteger(trans.deal, DEAL_ENTRY) != DEAL_ENTRY_OUT) return;
+
+   ulong positionId = (ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
+   bool wasMerged = IsPersistedMergedPosition(positionId) ||
+                    (ownedPositionId == positionId && ownedSource == "MERGED");
+   bool wasOD = (ownedPositionId == positionId && ownedSource == "OD");
+
+   // A stopout unlocks Trend only when the closed position was OD/MERGED.
+   if(HistoryDealGetInteger(trans.deal, DEAL_REASON) == DEAL_REASON_SL &&
+      (wasOD || wasMerged))
+   {
+      datetime dealTime = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+      g_odStopoutBarClose = dealTime / 60 * 60 + 60;
+      PrintFormat("[FVG_DUO] %s stopout recorded at %s",
+                  (wasMerged ? "MERGED" : "OD"),
+                  TimeToString(g_odStopoutBarClose, TIME_DATE | TIME_MINUTES));
+   }
+
+   // Keep the marker through partial exits. Delete it only after the
+   // position identifier no longer exists.
+   if(!IsPositionIdentifierOpen(positionId))
+   {
+      ClearPersistedMergedPosition(positionId);
+      if(ownedPositionId == positionId)
+      {
+         ownedActive = false;
+         ownedTicket = 0;
+         ownedPositionId = 0;
+         ownedSource = "";
+      }
+   }
 }
