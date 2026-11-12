@@ -30,7 +30,8 @@ def is_new_york_dst(utc: datetime) -> bool:
 def broker_stamp_to_new_york(utc: datetime, broker_offset_hours: int):
     server_stamp = utc + timedelta(hours=broker_offset_hours)
     ny_offset = -4 if is_new_york_dst(utc) else -5
-    return server_stamp - timedelta(hours=broker_offset_hours - ny_offset)
+    converted = server_stamp - timedelta(hours=broker_offset_hours - ny_offset)
+    return converted.replace(tzinfo=None)
 
 
 class NewYorkClockTests(unittest.TestCase):
