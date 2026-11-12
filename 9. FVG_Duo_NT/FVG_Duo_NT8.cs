@@ -181,7 +181,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 _emaSlow15m = EMA(BarsArray[3], _actEmaSlow);
                 _atr14_15m  = ATR(BarsArray[3], 14);
 
-                _platformZone = TimeZoneInfo.Local;
+                _platformZone = Core.Globals.GeneralOptions.TimeZoneInfo;
+                Print("[FVG_DUO] NinjaTrader application timezone: " + _platformZone.Id + "; strategy clock: America/New_York");
                 _currentTradingDate = DateTime.MinValue;
                 _odStopoutTime = DateTime.MinValue;
                 _statusText = "INITIALIZED";
@@ -226,8 +227,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private DateTime ToNewYork(DateTime time)
         {
-            if (_platformZone == null) _platformZone = TimeZoneInfo.Local;
-            return TimeZoneInfo.ConvertTime(DateTime.SpecifyKind(time, DateTimeKind.Unspecified), _platformZone, NewYorkTimeZone);
+            // NinjaTrader bar and execution timestamps are expressed in the
+            // application timezone (Tools > Options > General > Time zone),
+            // not necessarily the Windows machine timezone. Treat the
+            // timestamp as wall time in that configured zone, then convert
+            // through the Windows timezone database to New York.
+            if (_platformZone == null)
+                _platformZone = Core.Globals.GeneralOptions.TimeZoneInfo;
+
+            DateTime platformTime = DateTime.SpecifyKind(time, DateTimeKind.Unspecified);
+            return TimeZoneInfo.ConvertTime(platformTime, _platformZone, NewYorkTimeZone);
         }
 
         protected override void OnBarUpdate()
