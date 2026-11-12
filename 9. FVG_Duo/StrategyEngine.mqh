@@ -590,11 +590,15 @@ void CheckAndExecuteTrendFVG(datetime currentBarOpen)
    if(c2Range < actTrendAtrMult * atr) return;
 
    // Rule d: Trend (EMA_fast > EMA_slow)
+   // Oracle trend filter is evaluated on c3, not the still-forming M15 bar.
+   // Exclude series shift 0 and build the EMA chronologically through shift 1.
+   int emaCount = copied - 1;
    double closes[];
-   ArrayResize(closes, copied);
-   for(int i = 0; i < copied; i++) closes[i] = r15[copied - 1 - i].close; // Oldest first
-   double emaFast = ComputeEMA(closes, actTrendEmaFast, copied);
-   double emaSlow = ComputeEMA(closes, actTrendEmaSlow, copied);
+   ArrayResize(closes, emaCount);
+   for(int i = 0; i < emaCount; i++)
+      closes[i] = r15[copied - 1 - i].close; // Oldest through c3
+   double emaFast = ComputeEMA(closes, actTrendEmaFast, emaCount);
+   double emaSlow = ComputeEMA(closes, actTrendEmaSlow, emaCount);
    if(emaFast <= emaSlow) return;
 
    // Geometry: Entry at current market, Stop at c1.low - 1 tick, Target = entry + 3R
