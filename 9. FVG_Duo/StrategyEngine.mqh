@@ -175,34 +175,28 @@ int VBWeekAnchorOffset(datetime stamp)
 
 int VBServerNYOffsetSec(datetime stamp)
 {
-   int brokerUtcOffsetSec = CLOCK_UNKNOWN;
-
+   // The Strategy Tester weekend anchor already returns server-time minus
+   // New York-time. Do not interpret it as a broker UTC offset.
    if(MQLInfoInteger(MQL_TESTER))
-   {
-      brokerUtcOffsetSec = VBWeekAnchorOffset(stamp);
-   }
-   else
-   {
-      datetime utcNow = TimeGMT();
-      datetime serverNow = TimeTradeServer();
-      if(serverNow <= 0 || utcNow <= 0) return CLOCK_UNKNOWN;
+      return VBWeekAnchorOffset(stamp);
 
-      int raw = (int)(serverNow - utcNow);
-      brokerUtcOffsetSec = (int)MathRound((double)raw / 900.0) * 900;
-      if(MathAbs(raw - brokerUtcOffsetSec) > 120 ||
-         brokerUtcOffsetSec < -12 * 3600 || brokerUtcOffsetSec > 14 * 3600)
-         return CLOCK_UNKNOWN;
+   datetime utcNow = TimeGMT();
+   datetime serverNow = TimeTradeServer();
+   if(serverNow <= 0 || utcNow <= 0) return CLOCK_UNKNOWN;
 
-      // Historical timestamps cannot safely reuse today's live offset.
-      if(MathAbs((double)(stamp - serverNow)) > 7 * 86400)
-         brokerUtcOffsetSec = VBWeekAnchorOffset(stamp);
-   }
+   int raw = (int)(serverNow - utcNow);
+   int brokerUtcOffsetSec = (int)MathRound((double)raw / 900.0) * 900;
+   if(MathAbs(raw - brokerUtcOffsetSec) > 120 ||
+      brokerUtcOffsetSec < -12 * 3600 || brokerUtcOffsetSec > 14 * 3600)
+      return CLOCK_UNKNOWN;
 
-   if(brokerUtcOffsetSec == CLOCK_UNKNOWN) return CLOCK_UNKNOWN;
+   // Historical timestamps cannot safely reuse today's live offset. The
+   // weekend anchor returns the final server-to-New-York offset directly.
+   if(MathAbs((double)(stamp - serverNow)) > 7 * 86400)
+      return VBWeekAnchorOffset(stamp);
 
-   // First recover UTC using the broker offset. Then apply the actual
-   // New York UTC offset (-04:00 in DST, -05:00 otherwise). This avoids
-   // assuming that the broker's DST calendar matches the US calendar.
+   // Convert this broker timestamp to UTC, then use the exact New York
+   // offset (-04:00 during US DST, -05:00 otherwise). Broker DST may differ.
    datetime utcStamp = stamp - brokerUtcOffsetSec;
    int newYorkUtcOffsetSec = VBIsNewYorkDST(utcStamp) ? -4 * 3600 : -5 * 3600;
    return brokerUtcOffsetSec - newYorkUtcOffsetSec;
