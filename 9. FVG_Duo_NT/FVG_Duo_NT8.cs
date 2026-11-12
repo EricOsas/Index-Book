@@ -113,7 +113,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         #region Internal State
         private EMA _emaFast15m;
         private EMA _emaSlow15m;
-        private ATR _atr14_15m;
 
         private static readonly TimeZoneInfo NewYorkTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
         private TimeZoneInfo _platformZone;
@@ -181,7 +180,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 _emaFast15m = EMA(BarsArray[3], _actEmaFast);
                 _emaSlow15m = EMA(BarsArray[3], _actEmaSlow);
-                _atr14_15m  = ATR(BarsArray[3], 14);
 
                 _platformZone = Core.Globals.GeneralOptions.TimeZoneInfo;
                 Print("[FVG_DUO] NinjaTrader application timezone: " + _platformZone.Id + "; strategy clock: America/New_York");
