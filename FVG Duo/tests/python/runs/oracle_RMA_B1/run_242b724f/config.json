@@ -1,0 +1,22 @@
+{
+  "tick": 0.25,
+  "point_value": 20,
+  "fee_per_side": 2.14,
+  "slip_ticks": 1,
+  "od_stop_pct": 0.015,
+  "trend_ema_fast": 50,
+  "trend_ema_slow": 100,
+  "trend_atr_len": 14,
+  "trend_atr_mult": 1.5,
+  "trend_rr": 3.0,
+  "trend_first_entry": "09:30",
+  "trend_last_entry": "15:30",
+  "atr_method": "rma",
+  "atr_ref": "c1",
+  "fvg_strict": true,
+  "merge_anchor": "trend_entry",
+  "trend_after_od_stopout": false,
+  "warmup_bars": 1000,
+  "enable_od": true,
+  "enable_trend": true
+}
