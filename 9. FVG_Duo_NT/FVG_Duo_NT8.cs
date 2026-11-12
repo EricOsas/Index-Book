@@ -132,6 +132,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double _activeTargetPrice;
 
         private double _actAtrMult;
+        private int _actAtrBarsAgo;
         private int _actEmaFast;
         private int _actEmaSlow;
         private double _actStopPct;
@@ -194,6 +195,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Preset == ModelPresetNT8.OptimalB3a)
             {
                 _actAtrMult = 1.25;
+                _actAtrBarsAgo = 2; // Optimal B3a uses c2 ATR
                 _actEmaFast = 50;
                 _actEmaSlow = 100;
                 _actStopPct = 0.0125;
@@ -202,6 +204,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (Preset == ModelPresetNT8.ParityRmaC1)
             {
                 _actAtrMult = 1.50;
+                _actAtrBarsAgo = 3; // Oracle parity preset uses ATR ending at c1
                 _actEmaFast = 50;
                 _actEmaSlow = 100;
                 _actStopPct = 0.0150;
@@ -210,6 +213,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (Preset == ModelPresetNT8.VideoBaseB1)
             {
                 _actAtrMult = 1.50;
+                _actAtrBarsAgo = 2; // Video Base B1 uses c2 ATR
                 _actEmaFast = 50;
                 _actEmaSlow = 100;
                 _actStopPct = 0.0150;
@@ -218,6 +222,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             else
             {
                 _actAtrMult = TrendAtrMult;
+                _actAtrBarsAgo = 2; // Custom default follows c2 reference
                 _actEmaFast = TrendEmaFast;
                 _actEmaSlow = TrendEmaSlow;
                 _actStopPct = ODStopPct;
@@ -411,7 +416,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             bool bull = StrictFvg ? (c3Low > c1High) : (c3Low >= c1High);
             if (!bull) return;
 
-            double atr = _atr14_15m[1];
+            double atr = _atr14_15m[_actAtrBarsAgo];
             if (double.IsNaN(atr) || atr <= 0) return;
             double c2Range = Highs[3][2] - Lows[3][2];
             if (c2Range < _actAtrMult * atr) return;
