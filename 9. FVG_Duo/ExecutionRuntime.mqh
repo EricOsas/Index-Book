@@ -66,6 +66,9 @@ double CalculateLotSize(double entryPrice, double stopPrice)
 // Reconcile and recover owned position after restart
 void ReconcileOwnedPosition()
 {
+   ulong  prevTicket = ownedTicket;
+   string prevSource = ownedSource;
+
    ownedActive = false;
    ownedTicket = 0;
    ownedPositionId = 0;
@@ -91,6 +94,10 @@ void ReconcileOwnedPosition()
       if(StringFind(comment, "MERGED") >= 0)      ownedSource = "MERGED";
       else if(StringFind(comment, "TREND") >= 0)   ownedSource = "TREND";
       else                                         ownedSource = "OD";
+
+      // PositionModify may retain the original FVG_TREND comment after merge.
+      if(ticket == prevTicket && prevSource == "MERGED")
+         ownedSource = "MERGED";
 
       ownedActive = true;
       PrintFormat("[FVG_DUO] Recovered owned position ticket=%I64u id=%I64u side=%s entry=%.2f sl=%.2f tp=%.2f source=%s",
