@@ -1,0 +1,208 @@
+ROLE AND RULES
+You are implementing a trading-strategy backtester in Python. Follow this document literally.
+- Do NOT invent rules, "improve" anything, or fill gaps with your own judgment. If something you need is not specified here, STOP and ask me, listing the exact question.
+- Never use random or synthetic data. Use only the NT8 1-minute NQ files I provide.
+- Ignore the old file fvg_duo.py completely. Its FVG definition, exits and statistics are wrong. Do not copy code from it.
+- Never look ahead. A signal may use only bars that have fully closed at or before the signal time.
+- Do NOT write MT5 or NT8 code in this phase.
+- Do not use pandas iterrows or per-row iloc loops over bars. Use numpy arrays or vectorized pandas for bars and indicators. A Python loop over trading days (~2,500) is fine.
+
+GOAL
+Build a Python engine that reproduces the "FVG Duo" strategy on NQ futures, then run the experiments in section 13. It writes a per-trade CSV (section 12). That CSV becomes the oracle that the MT5 and NT8 ports must match trade for trade.
+
+CONTRACT CONSTANTS
+Tick = 0.25 points. Point value = $20 (one NQ contract). Fixed 1 contract. Fees = $2.14 per side per contract. Round trip = $4.28.
+
+====================================================================
+1. DATA AUDIT (do this first; write data_audit.md before any strategy code)
+====================================================================
+1a. Load the files. Report: file names, columns, row count, first and last timestamp as written in the file, whether timestamps are sorted, count of duplicate timestamps, count of NaN or zero prices, whether high >= max(open, close) and low <= min(open, close) on every row (count violations).
+1b. If the data is one file per contract (e.g. "NQ 12-24") rather than one continuous series, STOP and tell me.
+1c. TIMEZONE AND STAMP DETECTION. The file timestamps are naive. I do not know their timezone or whether they mark bar open or bar close (NT8 exports usually mark bar CLOSE). Detect both empirically:
+  - Candidate source timezones: America/New_York, America/Chicago, Europe/Amsterdam, UTC, America/Los_Angeles.
+  - Candidate stamp conventions: "open", "close".
+  - For each candidate timezone, convert timestamps to America/New_York. Use zoneinfo. If a conversion raises on an ambiguous or nonexistent local time, report the count and timestamps of those rows. Do not silently drop or guess.
+  - For each weekday with data, take 1m bars whose converted ET clock time is between 08:00 and 12:00. Find the minute with the highest volume. If there is no volume column, use the highest (high - low) and say so.
+  - The correct timezone is the one where that minute's ET time-of-day equals 09:30 (stamp = open) or 09:31 (stamp = close) on at least 90% of days.
+  - Report the percentage for every candidate. Report the winner's percentage per calendar year, and separately for the weeks when US and EU daylight saving differ (roughly the last 2 weeks of March, and last 2 weeks of October to the first week of November).
+  - If no candidate reaches 90%, or two candidates tie, STOP and tell me.
+1d. Normalize: build open_ts = ET-aware timestamp of the bar OPEN. If the stamp convention is "close", open_ts = stamp minus 1 minute. All later logic uses open_ts only.
+1e. Missing minutes: for each ET date with any bar between 09:30 and 16:00, count 1m bars with open_ts in [09:30, 16:00). Normal full day = 390. Report the distribution (min, median, max), the list of dates with fewer than 380 bars, and the total fraction of missing RTH minutes. NT8 omits minutes with no trades, so some missing minutes are normal. If the fraction exceeds 2%, STOP and tell me.
+1f. ROLLS. My prices are NOT back-adjusted, so quarterly rolls create price jumps. Do not modify prices. For each March, June, September and December, look only at session opens (first bar after a gap of 30+ minutes in open_ts) on days 1-21 of that month. Find the one with the largest absolute difference between its open and the previous bar's close. Report these as candidate roll dates (date, previous close, new open, gap in points). Save them to roll_dates.csv. Use them only for the near_roll flag in section 12.
+
+====================================================================
+2. BARS
+====================================================================
+All wall-clock logic uses America/New_York (zoneinfo).
+Build 5m, 10m and 15m bars from the 1m bars: bar_start = open_ts floored to a multiple of N minutes on ET wall-clock minutes. open = open of the earliest 1m bar in the group, high = max high, low = min low, close = close of the latest 1m bar. bar_end = bar_start + N minutes. Do NOT fill in missing bars. A bar exists only if it contains at least one 1m bar.
+Use ALL hours (Globex plus RTH) for all bars. Do not drop pre-market bars. The 10m bars before 09:30 are required for Opening Drive. Trend FVG needs 15m bars ending at 09:30.
+"Consecutive" means: b2.start == b1.start + N, and b3.start == b2.start + N. Any triple that is not consecutive (for example across the 17:00-18:00 break, a weekend or a missing bar) is invalid. Log it as reason "non_consecutive".
+Trading date = the ET calendar date of the entry bar.
+
+====================================================================
+3. FAIR VALUE GAP (the exact definition for every FVG in this document)
+====================================================================
+Three consecutive bars c1, c2, c3 (c3 is the newest, the one that just closed).
+ Bullish FVG: c3.low > c1.high (strict if fvg_strict=True, else >=).
+ Bearish FVG: c3.high < c1.low (strict if fvg_strict=True, else <=).
+c2 is the middle candle. c2's own prices play no part in the gap test.
+Do not use any "rising highs and lows" test. That is a different, wrong thing.
+
+====================================================================
+4. INDICATORS (on the 15m all-hours bar series, in time order, no gap filling)
+====================================================================
+EMA(N): pandas ewm(span=N, adjust=False) on close, seeded with the first close.
+True range TR_i = max(high-low, abs(high - prev_close), abs(low - prev_close)), where prev_close is the close of the previous EXISTING 15m bar. For the first bar, TR = high - low.
+ATR(14), by atr_method:
+ "rma": at index 13 = mean of TR[0..13]; after that, atr_i = (atr_{i-1} * 13 + TR_i) / 14. NaN before index 13.
+ "sma": mean of TR[i-13..i]. NaN before index 13.
+Warm-up: a Trend signal is invalid if the c3 bar's index in the 15m series is below 1000. Log it as "warmup".
+
+====================================================================
+5. OPENING DRIVE FVG (OD)
+====================================================================
+Uses 10m bars. Process each ET date as follows:
+ Check 1: c3 = the 10m bar with start 09:30 (it closes at 09:40). c1 and c2 are the two 10m bars immediately before it (starts 09:10 and 09:20). All three must exist and be consecutive.
+   - Bullish FVG -> LONG, entry at 09:40.
+   - Bearish FVG -> SHORT, entry at 09:40.
+   - No FVG -> go to Check 2.
+ Check 2 (only if Check 1 found no FVG): c3 = the 10m bar with start 09:40 (closes 09:50). c1 and c2 start 09:20 and 09:30. Same rules. Entry at 09:50.
+ If Check 1 produced a signal, never run Check 2.
+ Entry price = the OPEN of the 5m bar whose start equals the entry time (09:40 or 09:50). If that 5m bar does not exist, skip and log "no_entry_bar".
+ Stop = entry_price * (1 - od_stop_pct) for LONG, or entry_price * (1 + od_stop_pct) for SHORT. Round to the nearest 0.25 (halves round up). No target. Time exit (section 8).
+
+====================================================================
+6. TREND FVG (long only)
+====================================================================
+Uses 15m bars. For every index k in the 15m series, with c1 = bar k-2, c2 = bar k-1, c3 = bar k, a signal exists only if ALL of these hold:
+ a. The three bars are consecutive (section 2).
+ b. Bullish FVG per section 3.
+ c. Displacement: (c2.high - c2.low) >= trend_atr_mult * ATR, where ATR = atr[k-1] if atr_ref="c2" (the ATR window includes c2), or atr[k-2] if atr_ref="c1" (the window ends at c1). ATR must not be NaN.
+ d. Trend: ema_fast[k] > ema_slow[k] (strict), both read at c3's index.
+ e. entry_time = c3.bar_end. Its ET time-of-day must be between 09:30 and 15:30 inclusive (trend_last_entry="15:30", inclusive).
+ f. Entry price = OPEN of the 5m bar whose start == entry_time. If that bar does not exist, skip and log "no_entry_bar".
+ g. stop = c1.low - 0.25. If entry_price <= stop, reject and log "entry_at_or_below_stop".
+ h. R = entry_price - stop. target = entry_price + trend_rr * R.
+No Trend trade after 15:30 entry time. Time exit per section 8.
+
+====================================================================
+7. ONE TRADE'S LIFE: FILL SIMULATION ON 1-MINUTE BARS
+====================================================================
+A position is entered at entry_time at entry_price, which is the open of the 1m bar whose open_ts == entry_time. Begin checking exits on THAT SAME 1m bar and continue on each later 1m bar of the same ET date with open_ts < 16:00. If a 1m bar does not exist, skip it.
+For a LONG, on each 1m bar, check in this order (the first that applies ends the trade):
+ 1. bar.open <= stop      -> exit at bar.open,  reason "STOP"   (gap through the stop)
+ 2. bar.low  <= stop      -> exit at stop,      reason "STOP"   (the stop wins ties with the target inside the same bar)
+ 3. target exists and bar.open >= target -> exit at bar.open, reason "TARGET"
+ 4. target exists and bar.high >= target -> exit at target,   reason "TARGET"
+For a SHORT, mirror it: 1. bar.open >= stop -> exit at open. 2. bar.high >= stop -> exit at stop. (OD shorts have no target.)
+Time exit: if no exit occurred, exit at the CLOSE of the last 1m bar of that ET date with open_ts < 16:00. Reason "TIME". On a normal day this is the 15:59 bar. If that last bar's open_ts is earlier than 15:55, still use it but mark the day "short_day" in the log.
+exit_ts for STOP/TARGET = open_ts of the 1m bar where it happened. For TIME = last bar open_ts + 1 minute. exit_bar_close = exit bar open_ts + 1 minute (use this for the "flat by" check in section 8).
+
+====================================================================
+8. DUO ARBITRATION (the rules for combining OD and Trend; one position at a time)
+====================================================================
+Engine switches: enable_od, enable_trend. (OD-only, Trend-only and Duo must all be runnable.) In Trend-only mode, Trend may take several trades per day, one at a time.
+Per trading date:
+ Step 1. Compute the OD signal (maybe none) and the full list of Trend signals (sorted by entry_time). Signal generation does not depend on position state.
+ Step 2. Case "no OD signal today": walk the Trend signals in time order. Take a signal only if there is no open position, meaning entry_time >= exit_bar_close of the previous trade. Simulate it (section 7). Repeat until the signal list is exhausted.
+ Step 3. Case "OD signal today" at time T_od (09:40 or 09:50):
+  3a. Before T_od: walk the Trend signals with entry_time < T_od in order, taking them under the same one-at-a-time rule. Simulate each, but only evaluate its 1m bars with open_ts < T_od. If it exits in that range, it is a normal closed trade. If it has not exited by then, it is OPEN at T_od.
+  3b. If no Trend position is open at T_od: the OD trade enters normally at T_od (source "OD").
+  3c. If a Trend LONG is open at T_od and OD is LONG (MERGE): do not open a second position. Replace the Trend position's exit rules: remove the target, set the stop to merge_anchor_price * (1 - od_stop_pct) rounded to the nearest 0.25, and keep the time exit. merge_anchor "trend_entry" (default) means the anchor is the Trend position's own entry price. "od_signal" means the anchor is the open of the 5m bar at T_od. If bar.open of the 1m bar at T_od is already <= the new stop, exit at that open with reason "STOP". Resume the section 7 simulation starting at the 1m bar with open_ts == T_od. Record ONE trade, source "MERGED", entry_ts and entry_price from the Trend entry.
+  3d. If a Trend LONG is open at T_od and OD is SHORT (FLIP): close the Trend long at the open of the 1m bar at T_od (reason "FLIP"; record it as its own trade, source "TREND"). Then open the OD SHORT at the same price at T_od (source "OD"), with the OD stop.
+  3e. After 3b/3c/3d, while the OD or MERGED position is open, take NO Trend signals.
+  3f. After the OD, MERGED or FLIP-OD position closes:
+    - If trend_after_od_stopout = False (BASELINE; this is the video's rule): no more trades that day.
+    - If trend_after_od_stopout = True: if and only if that final OD/MERGED position's exit reason is "STOP", resume walking the remaining Trend signals with entry_time >= exit_bar_close of that position (one at a time, as in Step 2). Exits by TIME mean the day is over. Mark those trades with after_od_stopout = 1.
+ Trend signals are never carried over to the next day.
+
+====================================================================
+9. COSTS
+====================================================================
+Fees: 2.14 per side. Each trade pays 2 sides (4.28). A FLIP is two separate trades, so 4 sides in total. A MERGED trade is ONE trade, 2 sides.
+Slippage: slip_ticks (default 0) ticks per fill, applied adversely to every fill (entries, stops, targets, time exits, FLIP exits). For a LONG, entry_fill = entry_price + slip, exit_fill = exit_price - slip. For a SHORT, the reverse. Stop and target levels are computed from the UNSLIPPED entry_price.
+points = (exit_fill - entry_fill) for a LONG, (entry_fill - exit_fill) for a SHORT. gross_usd = points * 20. net_usd = gross_usd - fees.
+
+====================================================================
+10. CONFIG (one JSON per run; save it next to that run's outputs; defaults below)
+====================================================================
+tick 0.25 | point_value 20 | fee_per_side 2.14 | slip_ticks 0
+od_stop_pct 0.015 | od_check_starts ["09:30","09:40"] (the 10m bar start times)
+trend_ema_fast 50 | trend_ema_slow 100 | trend_atr_len 14 | trend_atr_mult 1.5 | trend_rr 3.0
+trend_first_entry "09:30" | trend_last_entry "15:30" (inclusive)
+atr_method "rma" | atr_ref "c2" | fvg_strict true
+merge_anchor "trend_entry" | trend_after_od_stopout false | warmup_bars 1000
+Do not hardcode any of these inside logic. Every value comes from config.
+
+====================================================================
+11. UNIT TESTS (write and pass these BEFORE running on the real data; print pass/fail)
+====================================================================
+Build small hand-made 1m datasets. Required tests:
+ T1 bullish FVG: c1.high=100, c3.low=101 -> true; c3.low=100 -> false when strict, true when not strict. Same for bearish.
+ T2 a rising-highs-and-lows sequence with NO gap -> NOT an FVG.
+ T3 non-consecutive triple (a missing middle bar) -> rejected.
+ T4 OD check 1 fires -> check 2 never evaluated. OD check 1 absent, check 2 fires -> entry at 09:50.
+ T5 stop and target both inside one 1m bar -> STOP wins.
+ T6 gap through the stop (bar.open below the stop) -> exit at bar.open.
+ T7 time exit on a normal day = close of the 15:59 bar. On a day whose last bar is 12:59 -> close of the 12:59 bar.
+ T8 MERGE: Trend long at 09:30, OD long at 09:50 -> one trade, source MERGED, target removed, stop = 1.5% below the Trend entry price.
+ T9 FLIP: Trend long at 09:30, OD short at 09:40 -> two trades; the long exits "FLIP" at the 09:40 open and the short enters at the same price.
+ T10 trend_after_od_stopout: False -> no Trend trade after an OD STOP. True -> Trend trades allowed only for signals with entry_time >= the stop bar's close.
+ T11 fees: one MERGED trade = 4.28. A FLIP day = 8.56.
+ T12 timezone: a known 09:30 ET open volume spike lands at 09:30 after conversion, in a winter date and a summer date.
+If any test fails, fix it before continuing. Do not skip.
+
+====================================================================
+12. OUTPUT FILES (per run; filenames include a short hash of the config)
+====================================================================
+trades.csv, one row per trade, columns exactly, in this order:
+ trade_id, date, source (OD|TREND|MERGED), side, entry_ts, entry_price, exit_ts, exit_price, exit_reason (STOP|TARGET|TIME|FLIP), stop_price, target_price (blank if none), points, gross_usd, fees_usd, net_usd, signal_check_no (OD: 1 or 2; blank otherwise), after_od_stopout (0|1), near_roll (0|1)
+ Timestamps as ISO-8601 with ET offset. Prices to 2 decimals. Money to 2 decimals.
+ near_roll = 1 if the entry date is within 3 trading sessions after a roll date from roll_dates.csv (the roll date itself counts as session 1).
+signals_log.csv: every candidate signal that was rejected or skipped, with date, signal type, entry_time, reason (non_consecutive, warmup, no_entry_bar, entry_at_or_below_stop, blocked_by_open_position, blocked_by_od_day, outside_window, ...).
+summary.json and summary.md for the run.
+
+====================================================================
+13. EXPERIMENTS (run in this order; a deterministic run needs no randomness)
+====================================================================
+Metrics for every run: trade count; net_usd; gross points; win rate (net_usd > 0, per trade); profit factor (gross profit / gross loss on net_usd); per-calendar-year net_usd and trade count; number of green years; OD long/short net_usd split; max drawdown on closed trades (peak to trough of cumulative net_usd starting at 0); max drawdown on 1-minute mark-to-market (equity = cumulative closed net_usd + open trade P&L at each 1m close); net_usd over the last 365 days of data; net_usd of the last 100 trades; net_usd split by first half vs second half of the years (in-sample / out-of-sample); net_usd with near_roll=1 vs near_roll=0.
+
+PHASE A: convention matching. The video states these targets, from its own data and likely a different continuous contract, so expect gaps: OD-only: 1,215 trades, ~$317k. Trend-only: 1,038 trades, ~$240k. Duo: 1,726 trades, ~$418k, max drawdown ~$30k, with 1 tick slippage each way ~$401k.
+ A1. OD-only, with fvg_strict in {true, false}.
+ A2. Trend-only, all 8 combinations of atr_method {rma, sma} x atr_ref {c2, c1} x fvg_strict {true, false}, with the video parameters (1.5, 50/100, rr 3).
+ A3. Duo for each of those 8 Trend conventions.
+ Print one table of all runs vs the targets. Selection rule: lock the convention combination with the smallest |Trend-only trade count - 1038|, ties broken by the smaller |Trend-only net - 240000|. Report this selection clearly as "chosen on count parity with the video, not on profitability". Report the whole table so I can override you.
+
+PHASE B: variant tests, using the locked convention (Duo mode, trend_after_od_stopout=false unless stated):
+ B1. VIDEO: mult 1.5, EMA 50/100, rr 3, od_stop_pct 0.015.
+ B2. MY VARIANT: mult 1.25, EMA 40/50, rr 3, od_stop_pct 0.015.
+ B3. Attribution: (mult 1.25, EMA 50/100) and (mult 1.5, EMA 40/50), each with od_stop_pct 0.015.
+ B4. OD stop sweep: od_stop_pct in {0.005, 0.0075, 0.010, 0.0125, 0.015, 0.020}, each with B1 and B2 Trend settings (12 runs).
+ B5. trend_after_od_stopout true vs false, for B1 and B2 settings, at od_stop_pct 0.015 and at the best-looking sweep value from B4 (report both).
+ B6. Slippage: slip_ticks 1 for B1 (compare to ~$401k).
+ B7. merge_anchor "od_signal" vs "trend_entry" for B1 (report the difference).
+Do not declare a winner. Report the tables and the in-sample vs out-of-sample split for each. Remember that many variants were tested.
+
+====================================================================
+14. SPOT-CHECK DAYS (print the full signal and trade detail for each)
+====================================================================
+ - 2024-11-07: the video says Trend bought at 09:30, OD at 09:50 was a bullish FVG (MERGE), result ~$4,300.
+ - Every year's August 4: the video says a bullish FVG at the open, bought at the next candle, ~$8,300 by the close.
+ - Every year's June 29: the video says a Trend buy at 11:15, ~$6,400.
+ - Every year's October 16: the video says no FVG at the 09:40 check, a bearish FVG at the 09:50 check, sell at 09:50, ~$10,000 (512 points).
+For each day print: all OD and Trend signals with reasons, and the trades. Don't force anything to match. Report which years match and which do not.
+
+====================================================================
+15. STOP AND ASK CONDITIONS
+====================================================================
+STOP and report to me instead of guessing if:
+ - the data is per-contract files; the timezone detection does not give a clear winner; missing RTH minutes exceed 2%;
+ - any unit test cannot pass;
+ - you hit a situation this document does not cover (describe the exact situation and the options);
+ - the engine would need a price or indicator that this document does not define.
+Do not ask about anything else. Proceed.
+
+====================================================================
+16. WHAT TO REPORT BACK
+====================================================================
+1) data_audit.md. 2) Unit test results. 3) The Phase A table and the chosen convention. 4) The Phase B tables. 5) The spot-check output. 6) A list of every place where you were unsure, and what you did. 7) The file paths of all outputs. Do not summarize results more favorably than the numbers support.

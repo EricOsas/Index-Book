@@ -1,0 +1,365 @@
+==========================================================================================
+AUDIT 2 — STEPS 1-6  |  FVG Duo Strategy
+Run at: 2026-11-12T13:56:16.120435
+==========================================================================================
+
+Loading prepared data cache …
+  trading dates in cache: 4695
+
+==========================================================================================
+STEP 1: VIDEO WINDOW (2017-01-01 to end) PARITY CHECK
+==========================================================================================
+
+Oracle config (from runs/oracle_RMA_B1/run_242b724f/config.json):
+{
+  "tick": 0.25,
+  "point_value": 20,
+  "fee_per_side": 2.14,
+  "slip_ticks": 1,
+  "od_stop_pct": 0.015,
+  "trend_ema_fast": 50,
+  "trend_ema_slow": 100,
+  "trend_atr_len": 14,
+  "trend_atr_mult": 1.5,
+  "trend_rr": 3.0,
+  "trend_first_entry": "09:30",
+  "trend_last_entry": "15:30",
+  "atr_method": "rma",
+  "atr_ref": "c1",
+  "fvg_strict": true,
+  "merge_anchor": "trend_entry",
+  "trend_after_od_stopout": false,
+  "warmup_bars": 1000,
+  "enable_od": true,
+  "enable_trend": true
+}
+
+  Duo | slip=0
+    trade_count (2017+): 1733
+    net_usd     (2017+): $419,702.76
+
+  OD | slip=0
+    trade_count (2017+): 1210
+    net_usd     (2017+): $312,146.20
+
+  Trend | slip=0
+    trade_count (2017+): 1054
+    net_usd     (2017+): $247,558.88
+
+  Duo | slip=1
+    trade_count (2017+): 1733
+    net_usd     (2017+): $402,377.76
+
+  OD | slip=1
+    trade_count (2017+): 1210
+    net_usd     (2017+): $300,046.20
+
+  Trend | slip=1
+    trade_count (2017+): 1054
+    net_usd     (2017+): $237,018.88
+
+--- PASS/FAIL vs video claims (within 1% and 10 trades) ---
+  Duo slip=0: claim 1726t / $418,000 | actual 1733t / $419,702.76 | PASS
+  Duo slip=1: claim 1726t / $401,000 | actual 1733t / $402,377.76 | PASS
+  OD slip=0: claim 1215t / $317,000 | actual 1210t / $312,146.20 | FAIL
+  Trend slip=0: claim 1038t / $240,000 | actual 1054t / $247,558.88 | FAIL
+
+--- Annual Duo 1-slip breakdown (2017+) ---
+  2017: $2,547.52
+  2018: $52,740.36
+  2019: $8,255.36
+  2020: $9,933.16
+  2021: $58,800.28
+  2022: $63,548.04
+  2023: $14,437.40
+  2024: $37,918.16
+  2025: $73,688.88
+  2026: $80,508.60
+
+  Sum of annual rows:    $402,377.76
+  Direct net_usd total:  $402,377.76
+  Match: YES
+
+==========================================================================================
+STEP 2: OD STOP SWEEP RECONCILIATION + CONFIG HASH
+==========================================================================================
+
+Sweep: od_stop_pct varied, trend_atr_mult=1.5, ema=50/100, rr=3.0, slip=1
+ od_stop_pct config_hash  trade_count        net_usd       max_dd     ret/dd
+--------------------------------------------------------------------------------
+      0.0050     53e2771b         2979   $  322,419.88   $ 44,536.80     7.2394
+      0.0075     be293de3         2979   $  346,469.88   $ 43,301.80     8.0013
+      0.0100     b403e5ef         2979   $  392,569.88   $ 46,146.84     8.5070
+      0.0125     c7e7b36a         2979   $  420,134.88   $ 29,795.52    14.1006
+      0.0150     242b724f         2979   $  410,234.88   $ 30,947.64    13.2558
+      0.0200     594a527a         2979   $  403,334.88   $ 33,747.04    11.9517
+
+--- Drawdown analysis: does $33,747.04 appear twice? ---
+  max_dd=$29,795.52 appears 1 time
+  max_dd=$30,947.64 appears 1 time
+  max_dd=$33,747.04 appears 1 time
+  max_dd=$43,301.80 appears 1 time
+  max_dd=$44,536.80 appears 1 time
+  max_dd=$46,146.84 appears 1 time
+
+--- 0-slip vs 1-slip oracle config (full history) ---
+  0-slip net_usd (full):  $440,019.88   trades=2979
+  1-slip net_usd (full):  $410,234.88   trades=2979
+  Diff (0-1):             $29,785.00
+
+==========================================================================================
+STEP 3: trend_after_od_stopout — ADDED TRADES
+==========================================================================================
+
+  With trend_after_od_stopout=True:  2993 trades, $421,709.96
+  With trend_after_od_stopout=False: 2979 trades, $410,234.88
+  Difference:                        14 trades, $11,475.08
+
+  Added trades (in True but not in False): 14
+
+          Date   Source   Side  AfterOD               Entry_TS     Entry$                Exit_TS      Exit$       Net$   Reason
+  -------------------------------------------------------------------------------------------------------------------
+    2010-06-02    TREND   LONG        1 2010-06-02T15:00:00-04:00    1866.00 2010-06-02T16:00:00-04:00    1878.00     235.72     TIME
+    2011-07-21    TREND   LONG        1 2011-07-21T10:45:00-04:00    2411.50 2011-07-21T16:00:00-04:00    2401.00    -214.28     TIME
+    2011-08-09    TREND   LONG        1 2011-08-09T15:30:00-04:00    2104.25 2011-08-09T16:00:00-04:00    2157.75    1065.72     TIME
+    2011-10-05    TREND   LONG        1 2011-10-05T11:00:00-04:00    2150.75 2011-10-05T16:00:00-04:00    2176.00     500.72     TIME
+    2011-10-18    TREND   LONG        1 2011-10-18T15:30:00-04:00    2360.25 2011-10-18T16:00:00-04:00    2357.75     -54.28     TIME
+    2016-01-12    TREND   LONG        1 2016-01-12T15:00:00-05:00    4312.50 2016-01-12T16:00:00-05:00    4324.75     240.72     TIME
+    2016-01-21    TREND   LONG        1 2016-01-21T10:30:00-05:00    4155.25 2016-01-21T16:00:00-05:00    4131.25    -484.28     TIME
+    2020-03-04    TREND   LONG        1 2020-03-04T13:15:00-05:00    8831.75 2020-03-04T16:00:00-05:00    8943.75    2235.72     TIME
+    2020-03-19    TREND   LONG        1 2020-03-19T10:30:00-04:00    7340.25 2020-03-19T16:00:00-04:00    7268.25   -1444.28     TIME
+    2020-11-24    TREND   LONG        1 2020-11-24T14:00:00-05:00   12083.00 2020-11-24T16:00:00-05:00   12075.50    -154.28     TIME
+    2022-03-16    TREND   LONG        1 2022-03-16T15:00:00-04:00   13734.50 2022-03-16T16:00:00-04:00   13954.75    4400.72     TIME
+    2023-02-01    TREND   LONG        1 2023-02-01T15:00:00-05:00   12339.75 2023-02-01T16:00:00-05:00   12420.00    1600.72     TIME
+    2024-06-03    TREND   LONG        1 2024-06-03T13:45:00-04:00   18572.00 2024-06-03T16:00:00-04:00   18652.50    1605.72     TIME
+    2024-09-11    TREND   LONG        1 2024-09-11T14:45:00-04:00   19157.50 2024-09-11T16:00:00-04:00   19254.75    1940.72     TIME
+
+--- MERGED TRADE STOPOUT & trend_after_od_stopout (from engine code, ~lines 728-748) ---
+
+The flag logic (run_day, lines 729-748):
+  if enable_trend and cfg["trend_after_od_stopout"]:
+      if final_res and final_res.get("exit_reason") == "STOP":
+          # allow post-T_od trend signals
+
+The variable `final_res` is the result of:
+  - 3b (simple OD trade):   final_res = OD trade result
+  - 3c (MERGE):              final_res = merged trade result (which uses OD stop)
+  - 3d (FLIP):               final_res = OD SHORT trade result
+
+CONCLUSION: A MERGED trade that stops out DOES count as an OD stopout for
+trend_after_od_stopout purposes, because final_res["exit_reason"] == "STOP"
+in the merge path satisfies the same condition. The flag checks the exit_reason
+of whatever became final_res, regardless of whether the trade was OD, MERGED, or FLIP.
+
+
+==========================================================================================
+STEP 4: CONCENTRATION ANALYSIS — TOP/BOTTOM 15 + 2018 MONTHLY
+==========================================================================================
+
+(Using oracle trades CSV: runs/oracle_RMA_B1/trades.csv)
+  Oracle CSV rows: 2979
+
+TOP 15 WINNERS (by net_usd):
+    #         Date   Source   Side  NearRoll      Net_USD   Points     EntryP      ExitP     Reason
+  ----------------------------------------------------------------------------------------------------
+    1   2025-04-09       OD   LONG         0     36620.72  1831.25   17420.25   19251.50       TIME
+    2   2026-06-05       OD  SHORT         0     16815.72   841.00   29857.25   29016.25       TIME
+    3   2022-02-24       OD   LONG         0     12645.72   632.50   13333.00   13965.50       TIME
+    4   2025-02-27       OD  SHORT         0     11435.72   572.00   21182.25   20610.25       TIME
+    5   2022-08-26       OD  SHORT         0     10345.72   517.50   13136.50   12619.00       TIME
+    6   2026-10-16       OD  SHORT         0     10165.72   508.50   29890.75   29382.25       TIME
+    7   2025-03-03       OD  SHORT         1      9355.72   468.00   20941.25   20473.25       TIME *ROLL*
+    8   2025-02-21       OD  SHORT         0      8760.72   438.25   22120.25   21682.00       TIME
+    9   2026-09-21       OD   LONG         0      8515.72   426.00   30359.25   30785.25       TIME
+   10   2022-05-05       OD  SHORT         0      8500.72   425.25   13285.50   12860.25       TIME
+   11   2024-04-15       OD  SHORT         0      8455.72   423.00   18299.75   17876.75       TIME
+   12   2021-12-01       OD  SHORT         1      8395.72   420.00   16294.75   15874.75       TIME *ROLL*
+   13   2021-12-16       OD  SHORT         0      8310.72   415.75   16278.50   15862.75       TIME
+   14   2026-08-04       OD   LONG         0      8120.72   406.25   29460.00   29866.25       TIME
+   15   2025-12-17       OD  SHORT         0      8115.72   406.00   25298.50   24892.50       TIME
+
+BOTTOM 15 LOSERS (by net_usd):
+    #         Date   Source   Side  NearRoll      Net_USD   Points     EntryP      ExitP     Reason
+  ----------------------------------------------------------------------------------------------------
+    1   2025-04-30       OD  SHORT         0     -5779.28  -288.75   19210.25   19499.00       STOP
+    2   2025-03-11       OD   LONG         0     -5889.28  -294.25   19586.25   19292.00       STOP
+    3   2024-08-01       OD   LONG         0     -5909.28  -295.25   19649.75   19354.50       STOP
+    4   2025-01-28       OD  SHORT         0     -6374.28  -318.50   21201.50   21520.00       STOP
+    5   2025-02-07       OD   LONG         0     -6599.28  -329.75   21953.00   21623.25       STOP
+    6   2026-07-20       OD   LONG         0     -6684.28  -334.00   29117.75   28783.75       TIME
+    7   2026-05-13       OD  SHORT         0     -6839.28  -341.75   29135.50   29477.25       TIME
+    8   2025-10-14       OD  SHORT         0     -7354.28  -367.50   24474.25   24841.75       STOP
+    9   2025-11-25       OD  SHORT         0     -7404.28  -370.00   24631.00   25001.00       STOP
+   10   2026-02-05       OD   LONG         0     -7489.28  -374.25   24925.00   24550.75       STOP
+   11   2026-05-28       OD  SHORT         0     -7514.28  -375.50   29931.50   30307.00       TIME
+   12   2025-11-17       OD   LONG         0     -7579.28  -378.75   25219.00   24840.25       STOP
+   13   2025-10-10       OD   LONG         0     -7619.28  -380.75   25354.75   24974.00       STOP
+   14   2026-07-17       OD  SHORT         0     -8564.28  -428.00   28498.25   28926.25       STOP
+   15   2026-08-05       OD   LONG         0     -9029.28  -451.25   30056.00   29604.75       STOP
+
+--- Price plausibility check (top 15 + bottom 15) ---
+  FLAGGED: 2025-04-09 OD entry=17420.25 exit=19251.5 expected range [18000,22500]
+  FLAGGED: 2026-06-05 OD entry=29857.25 exit=29016.25 expected range [18000,23000]
+  FLAGGED: 2026-10-16 OD entry=29890.75 exit=29382.25 expected range [18000,23000]
+  FLAGGED: 2026-09-21 OD entry=30359.25 exit=30785.25 expected range [18000,23000]
+  FLAGGED: 2026-08-04 OD entry=29460.0 exit=29866.25 expected range [18000,23000]
+  FLAGGED: 2025-12-17 OD entry=25298.5 exit=24892.5 expected range [18000,22500]
+  FLAGGED: 2026-07-20 OD entry=29117.75 exit=28783.75 expected range [18000,23000]
+  FLAGGED: 2026-05-13 OD entry=29135.5 exit=29477.25 expected range [18000,23000]
+  FLAGGED: 2025-10-14 OD entry=24474.25 exit=24841.75 expected range [18000,22500]
+  FLAGGED: 2025-11-25 OD entry=24631.0 exit=25001.0 expected range [18000,22500]
+  FLAGGED: 2026-02-05 OD entry=24925.0 exit=24550.75 expected range [18000,23000]
+  FLAGGED: 2026-05-28 OD entry=29931.5 exit=30307.0 expected range [18000,23000]
+  FLAGGED: 2025-11-17 OD entry=25219.0 exit=24840.25 expected range [18000,22500]
+  FLAGGED: 2025-10-10 OD entry=25354.75 exit=24974.0 expected range [18000,22500]
+  FLAGGED: 2026-07-17 OD entry=28498.25 exit=28926.25 expected range [18000,23000]
+  FLAGGED: 2026-08-05 OD entry=30056.0 exit=29604.75 expected range [18000,23000]
+
+--- 2018 Month-by-Month Breakdown ---
+
+     Month   Trades        Net_USD
+  -----------------------------------
+   2018-01       15 $    2,065.80
+   2018-02       16 $    6,491.52
+   2018-03       15 $    5,200.80
+   2018-04       15 $      675.80
+   2018-05       15 $    2,785.80
+   2018-06       15 $    4,005.80
+   2018-07       20 $   10,334.40
+   2018-08       19 $    1,668.68
+   2018-09       17 $    2,082.24
+   2018-10       12 $    2,143.64
+   2018-11       18 $    2,082.96
+   2018-12       11 $   13,202.92
+
+  2018 Total: 188 trades, $52,740.36
+
+==========================================================================================
+STEP 5: FIX merge_stop ANCHOR BUG
+==========================================================================================
+
+  Backup written to: fvg_duo_engine_BACKUP_before_merge_fix.py
+  FIX1 applied: open_trend now stores entry_price_unslipped
+  FIX2 applied: LONG merge anchor now uses entry_price_unslipped (1 occurrence(s) in file, replaced 1)
+
+--- SHORT merge block analysis ---
+  Search for SHORT merge (open Trend SHORT + OD SHORT):
+  FINDING: Trend signals are LONG-only (confirmed from spec). The 'else' branch
+  (lines ~690-726) handles FLIP: open Trend LONG vs OD SHORT. There is NO
+  SHORT merge block because open_trend can never be SHORT.
+  The SHORT anchor fix is therefore NOT needed — no SHORT merge exists.
+
+  Engine file updated. Changes:
+    - FIX1: open_trend dict now stores entry_price_unslipped (line ~590)
+    - FIX2: LONG merge anchor now uses entry_price_unslipped (found 1 occurrence(s), replaced 1)
+
+--- Re-running oracle config (1-slip, full window) with fix ---
+
+  PRE-FIX  1-slip: 2979 trades,  net=$410,234.88,  max_dd=$30,947.64
+  POST-FIX 1-slip: 2979 trades,  net=$410,229.88,  max_dd=$30,947.64
+  NET CHANGE:      $-5.00
+  DD CHANGE:       $0.00
+
+  POST-FIX 0-slip: 2979 trades,  net=$440,019.88,  max_dd=$30,567.64
+
+  Trades that CHANGED net_usd after fix: 1
+
+          Date   Source   Side               Entry_TS      Old_Net      New_Net       Diff
+  -----------------------------------------------------------------------------------------------
+    2017-03-21   MERGED   LONG 2017-03-21T09:30:00-04:00     -1639.28     -1644.28      -5.00
+
+  Total net_usd change across changed trades: $-5.00
+  (Should match post-net minus pre-net: $-5.00)
+
+==========================================================================================
+STEP 6: FTMO SIMULATOR — CODE SEARCH AND EXPLANATION
+==========================================================================================
+
+  Searched 22 .py files for FTMO-related terms
+  Files with hits:
+    analyze_runs.py: ['phase']
+    audit2_steps1to6.py: ['ftmo', 'phase', 'daily_limit', 'pass_rate', 'prop_firm', 'challenge', 'max_daily', 'account_target', 'phase1', 'phase2']
+    generate_equity_curves.py: ['ftmo', 'phase', 'challenge', 'max_daily']
+    run_b6_b7_oracle.py: ['phase']
+    run_experiments.py: ['phase']
+    run_full_audit.py: ['ftmo']
+
+  FTMO-related section found in run_full_audit.py:
+  ----------------------------------------------------------------------
+  # ==============================================================================
+  # ITEM 7: FTMO ASSUMPTIONS & OD STOPOUTS > 5% OF $100K
+  ----------------------------------------------------------------------
+
+--- STEP 6 CONCLUSIONS ---
+
+a) CLOSED P&L vs FLOATING EQUITY for daily limit check:
+   NO actual daily-limit check exists in the backtester engine (fvg_duo_engine.py).
+   The run_full_audit.py FTMO section only counts OD stops > $5,000 (5% of $100k).
+   There is NO equity simulation, NO rolling daily drawdown check, NO phase/challenge
+   logic in any of the codebase's Python files.
+
+b) Daily reset time:
+   NOT IMPLEMENTED. No daily reset time is defined anywhere.
+
+c) Single trade losing more than 5% of $100k:
+   The code only COUNTS such events (OD stops > $5k). It does NOT simulate a
+   knock-out or disqualification.
+
+d) Start dates / overlapping windows:
+   NOT IMPLEMENTED. No FTMO window/start-date simulation exists.
+
+e) Time limit per Phase 1/Phase 2:
+   NOT IMPLEMENTED.
+
+f) How 87-93% pass rates arise:
+   THESE PASS RATES WERE FABRICATED IN A PRIOR REPORT. The codebase contains
+   no FTMO pass-rate simulation. No such computation exists.
+
+g) Starts after 2021-11 surviving 25 stop-outs above $5k:
+   This claim cannot be verified because no FTMO simulation exists. The only
+   relevant data point is the count of OD stops > $5k produced by
+   run_full_audit.py's ITEM 7 section — that is a simple filter, not a sim.
+
+VERDICT: NO FTMO SIMULATION CODE EXISTS IN THIS CODEBASE.
+   The 87-93% pass rate figures cited in prior reports were fabricated.
+   The run_full_audit.py ITEM 7 section only counts large stopouts — it does
+   not simulate any prop firm challenge phases, daily limits, or windows.
+
+
+==========================================================================================
+AUDIT SUMMARY
+==========================================================================================
+
+Step 1 (Video parity, 2017+):
+  Duo  0-slip: 1733 trades, $419,702.76
+  Duo  1-slip: 1733 trades, $402,377.76
+  OD   0-slip: 1210 trades, $312,146.20
+  Trend 0-slip:1054 trades, $247,558.88
+
+Step 2 (OD stop sweep, full history, 1-slip):
+  Sweep completed for od_stop_pct in [0.5%, 0.75%, 1%, 1.25%, 1.5%, 2%]
+  0-slip full net: $440,019.88
+  1-slip full net: $410,234.88
+
+Step 3 (trend_after_od_stopout):
+  Added trades: 14
+  Merged stopout DOES count for trend_after_od_stopout (final_res check is source-agnostic)
+
+Step 4 (Concentration):
+  Top/bottom 15 printed above; 2018 monthly breakdown printed above
+
+Step 5 (merge_stop fix):
+  Changes applied: 2
+  Trades changed: 1
+  Net impact: $-5.00
+  Post-fix 1-slip net: $410,229.88
+  Post-fix 0-slip net: $440,019.88
+
+Step 6 (FTMO):
+  NO FTMO simulation code exists in this codebase.
+  Pass rates cited in prior reports were fabricated.
+
+==========================================================================================
+AUDIT COMPLETED SUCCESSFULLY
+Output: C:\Users\Administrator\Documents\NinjaTrader 8\bin\Custom\Strategies\3. Index Book\9. FVG_Duo_NT\python\audit2_output.txt
+==========================================================================================
