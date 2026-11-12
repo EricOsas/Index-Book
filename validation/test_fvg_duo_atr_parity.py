@@ -57,13 +57,14 @@ def test_compute_at_matches_oracle_at_c1_and_c2():
             _oracle.compute_tr(high, low, close), period, method
         )
         for k in range(1000, len(close)):
-            # At a c3 decision: c1=k-2, c2=k-1. In series order,
-            # current forming bar is shift 0, c3=1, c2=2, c1=3.
-            c1 = _atr_at_series_shift(high, low, close, period, method, 3)
-            c2 = _atr_at_series_shift(high, low, close, period, method, 2)
+            # At a c3 decision: c1=k-2, c2=k-1. The newest array slot is
+            # the forming bar, so the reference shifts move with the cursor.
+            c1_shift = len(close) + 1 - k
+            c2_shift = len(close) - k
+            c1 = _atr_at_series_shift(high, low, close, period, method, c1_shift)
+            c2 = _atr_at_series_shift(high, low, close, period, method, c2_shift)
             assert np.isclose(c1, oracle_atr[k - 2], rtol=0, atol=1e-10)
             assert np.isclose(c2, oracle_atr[k - 1], rtol=0, atol=1e-10)
-            break
 
 
 def test_mt5_gate_stopout_and_merged_source_guards():
@@ -71,9 +72,11 @@ def test_mt5_gate_stopout_and_merged_source_guards():
     runtime = RUNTIME_PATH.read_text(encoding="utf-8")
     assert "bool canTradeTrend = false;" in mt5
     assert "void OnTradeTransaction(" in mt5
+    assert "ComputeATRAt(r15, 14, actAtrMethod, copied, atrShift)" in mt5
+    assert "int emaCount = copied - 1;" in mt5
     assert "g_odStopoutBarClose = dealTime / 60 * 60 + 60;" in mt5
     assert 'prevSource == "MERGED"' in runtime
-    assert "int WARMUP_BARS = 1000;" in mt5
+    assert "WARMUP_BARS = 1000;" in mt5
 
 
 def test_nt8_preset_atr_and_stopout_guards():
